@@ -1,0 +1,24 @@
+{
+  "name": "buildlab-discord-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js",
+    "setup:server": "node index.js",
+    "setup:guides": "node guide.js",
+    "deploy:commands": "node src/deploy-commands.js",
+    "test": "node tests/test-suite.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "discord.js": "^14.27.0",
+    "dotenv": "^18.0.4"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

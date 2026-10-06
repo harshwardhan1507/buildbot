@@ -1,0 +1,26 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+
+# Node modules & npm logs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# SQLite database & WAL journal files
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+tests/*.sqlite
+tests/*.sqlite-wal
+tests/*.sqlite-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Operating System files
+.DS_Store
+Thumbs.db
