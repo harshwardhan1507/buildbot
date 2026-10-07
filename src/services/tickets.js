@@ -285,62 +285,83 @@ async function closeTicket(ticketNumber, closerMember, resolution = "Resolved by
     WHERE ticket_number = ?
   `).run(now, closerMember.id, resolution, ticketNumber);
 
-  const guild = closerMember.guild;
-  const channel = guild.channels.cache.get(ticket.channel_id);
+  const guild = closerMember?.guild || closerMember?.client?.guilds?.cache?.first();
+  let channel = guild?.channels?.cache?.get?.(ticket.channel_id);
+  if (!channel && guild?.channels?.fetch) {
+    channel = await guild.channels.fetch(ticket.channel_id).catch(() => null);
+  }
 
   if (channel) {
-    try {
-      const formattedNum = formatTicketNumber(ticketNumber);
-      // Rename channel
-      await channel.setName(`closed-${formattedNum}`);
+    const formattedNum = formatTicketNumber(ticketNumber);
 
-      // Make read-only for participant
+    // 1. Rename channel (safe if rate-limited by Discord)
+    if (typeof channel.setName === "function") {
+      await channel.setName(`closed-${formattedNum}`).catch((err) => {
+        console.warn(`[TICKETS] Could not rename channel closed-${formattedNum}: ${err.message}`);
+      });
+    }
+
+    // 2. Make read-only for participant
+    if (channel.permissionOverwrites && typeof channel.permissionOverwrites.edit === "function") {
       await channel.permissionOverwrites.edit(ticket.creator_id, {
         SendMessages: false,
+      }).catch((err) => {
+        console.warn(`[TICKETS] Could not update permission overwrites: ${err.message}`);
       });
+    }
 
-      // Move to archive category if available
-      const archiveCategory = await getOrCreateCategory(
-        guild,
-        config.tickets.archiveCategoryName
-      );
-      if (archiveCategory) {
-        await channel.setParent(archiveCategory.id, { lockPermissions: false });
-      }
-
-      // Send resolution embed
-      const closedEmbed = createBaseEmbed(
-        `🔒 Ticket #${formattedNum} Closed`,
-        `**Status:** 🟢 **Resolved**\n` +
-          `**Resolved by:** <@${closerMember.id}>\n` +
-          `**Resolution Duration:** \`${duration}\`\n\n` +
-          `*This channel is now archived and read-only. Thank you for building with TechSpace BuildLab ’26!*`,
-        COLORS.SUCCESS
-      );
-
-      const deleteRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`ticket_delete_${ticketNumber}`)
-          .setLabel("Delete Ticket (Admin Only)")
-          .setEmoji("🗑️")
-          .setStyle(ButtonStyle.Danger)
-      );
-
-      await channel.send({ embeds: [closedEmbed], components: [deleteRow] });
-
-      // Notify ticket creator in DMs if possible
+    // 3. Move to archive category if available
+    if (guild) {
       try {
-        const creatorUser = await guild.client.users.fetch(ticket.creator_id);
-        if (creatorUser) {
-          await creatorUser.send(
-            `🎫 Your BuildLab support ticket **#${formattedNum}** (${ticket.category}) has been resolved and closed by <@${closerMember.id}>.`
-          );
+        const archiveCategory = await getOrCreateCategory(
+          guild,
+          config.tickets.archiveCategoryName
+        ).catch(() => null);
+        if (archiveCategory && channel.parentId !== archiveCategory.id && typeof channel.setParent === "function") {
+          await channel.setParent(archiveCategory.id, { lockPermissions: false }).catch(() => {});
         }
-      } catch {
-        // Ignore DM error if participant has DMs off
+      } catch (err) {
+        console.warn(`[TICKETS] Could not move to archive category: ${err.message}`);
       }
-    } catch (err) {
-      console.error("Error updating closed ticket channel:", err.message);
+    }
+
+    // 4. Send resolution embed and delete button to channel
+    const closedEmbed = createBaseEmbed(
+      `🔒 Ticket #${formattedNum} Closed`,
+      `**Status:** 🟢 **Resolved**\n` +
+        `**Resolved by:** <@${closerMember?.id || closerMember?.user?.id}>\n` +
+        `**Resolution Duration:** \`${duration}\`\n\n` +
+        `*This channel is now archived and read-only. Thank you for building with TechSpace BuildLab ’26!*`,
+      COLORS.SUCCESS
+    );
+
+    const deleteRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ticket_delete_${ticketNumber}`)
+        .setLabel("Delete Ticket (Admin Only)")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    if (typeof channel.send === "function") {
+      await channel.send({ embeds: [closedEmbed], components: [deleteRow] }).catch((err) => {
+        console.error(`[TICKETS] Failed to send closed embed to channel: ${err.message}`);
+      });
+    }
+
+    // 5. Notify ticket creator in DMs if possible
+    try {
+      const client = guild?.client || closerMember?.client;
+      if (client?.users?.fetch) {
+        const creatorUser = await client.users.fetch(ticket.creator_id).catch(() => null);
+        if (creatorUser && typeof creatorUser.send === "function") {
+          await creatorUser.send(
+            `🎫 Your BuildLab support ticket **#${formattedNum}** (${ticket.category}) has been resolved and closed by <@${closerMember?.id || closerMember?.user?.id}>.`
+          ).catch(() => {});
+        }
+      }
+    } catch {
+      // Ignore DM errors
     }
   }
 
@@ -362,10 +383,13 @@ async function deleteTicketChannel(ticketNumber, guild) {
   const ticket = getTicketByNumber(ticketNumber);
   if (!ticket) return false;
 
-  const channel = guild.channels.cache.get(ticket.channel_id);
-  if (channel) {
+  let channel = guild?.channels?.cache?.get?.(ticket.channel_id);
+  if (!channel && guild?.channels?.fetch) {
+    channel = await guild.channels.fetch(ticket.channel_id).catch(() => null);
+  }
+  if (channel && typeof channel.delete === "function") {
     try {
-      await channel.delete("BuildLab Ticket permanent deletion");
+      await channel.delete("BuildLab Ticket permanent deletion").catch(() => {});
     } catch {
       // Ignore if already deleted
     }

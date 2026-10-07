@@ -52,6 +52,9 @@ const {
   getNextTicketNumber,
   formatTicketNumber,
   claimTicket,
+  closeTicket,
+  deleteTicketChannel,
+  getTicketByNumber,
   listTickets,
   getParticipantTickets,
 } = require("../src/services/tickets");
@@ -616,6 +619,41 @@ async function runTests() {
 
     const unclaimedList = listTickets({ filter: "unclaimed" });
     assert.ok(unclaimedList.some((t) => t.ticket_number === testTicketNumber));
+  });
+
+  await asyncTest("closeTicket marks ticket as CLOSED and handles channel updates safely", async () => {
+    const mockChannel = {
+      id: "chan_ticket_test",
+      name: "ticket-001",
+      setName: async (name) => { mockChannel.name = name; },
+      permissionOverwrites: {
+        edit: async () => {},
+      },
+      setParent: async () => {},
+      send: async () => {},
+    };
+
+    const mockCloser = {
+      id: "closer_user_99",
+      guild: {
+        channels: {
+          cache: new Collection([["chan_ticket_test", mockChannel]]),
+          fetch: async () => mockChannel,
+        },
+      },
+    };
+
+    const res = await closeTicket(testTicketNumber, mockCloser, "Resolved properly");
+    assert.strictEqual(res.success, true);
+
+    const updated = getTicketByNumber(testTicketNumber);
+    assert.strictEqual(updated.status, "CLOSED");
+    assert.strictEqual(updated.closed_by, "closer_user_99");
+
+    // Re-closing already closed ticket should safely fail
+    const dupClose = await closeTicket(testTicketNumber, mockCloser);
+    assert.strictEqual(dupClose.success, false);
+    assert.strictEqual(dupClose.message, "Ticket is already closed.");
   });
 
   // 7. Command Registry Integrity: Simplified 10 Commands
@@ -1239,6 +1277,37 @@ async function runTests() {
     assert.strictEqual(inter._state.acknowledged, true);
     const resp = inter.getResponse();
     assert.ok(resp?.embeds?.[0]);
+  });
+
+  await asyncTest("Button ticket_close and ticket_confirm_close resolve ticket smoothly", async () => {
+    const tNum = getNextTicketNumber();
+    db.prepare(`
+      INSERT INTO tickets (ticket_number, channel_id, creator_id, category, status, created_at)
+      VALUES (?, ?, ?, ?, 'OPEN', ?)
+    `).run(tNum, "chan_ticket_btn_test", testOwnerId, "PRD Issue", new Date().toISOString());
+
+    // 1. Initial click on close button
+    const closeBtnInter = createMockInteraction({
+      type: "button",
+      customId: `ticket_close_${tNum}`,
+    });
+    await interactionCreate.execute(closeBtnInter);
+    assert.strictEqual(closeBtnInter._state.acknowledged, true);
+    const closeResp = closeBtnInter.getResponse();
+    assert.ok(closeResp?.content?.includes("Are you sure you want to resolve and close"));
+
+    // 2. Click confirm close button
+    const confirmInter = createMockInteraction({
+      type: "button",
+      customId: `ticket_confirm_close_${tNum}`,
+    });
+    await interactionCreate.execute(confirmInter);
+    assert.strictEqual(confirmInter._state.acknowledged, true);
+    const confirmResp = confirmInter.getResponse();
+    assert.ok(confirmResp?.content?.includes("has been resolved and closed"));
+
+    const closedRecord = getTicketByNumber(tNum);
+    assert.strictEqual(closedRecord.status, "CLOSED");
   });
 
   // 10. Final Verification: Production DB Untouched

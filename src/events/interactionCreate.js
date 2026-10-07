@@ -14,6 +14,7 @@ const {
   closeTicket,
   deleteTicketChannel,
   getTicketByNumber,
+  formatTicketNumber,
 } = require("../services/tickets");
 const {
   getPrdById,
@@ -655,7 +656,14 @@ module.exports = {
           const ticketNum = parseInt(customId.replace("ticket_close_", ""), 10);
           const ticket = getTicketByNumber(ticketNum);
 
-          if (!isBuildLabTeam(interaction.member) && ticket?.creator_id !== interaction.user.id) {
+          if (!ticket) {
+            return interaction.reply({
+              content: "❌ Ticket not found or already closed.",
+              ephemeral: true,
+            });
+          }
+
+          if (!isBuildLabTeam(interaction.member) && ticket.creator_id !== interaction.user.id) {
             return interaction.reply({
               content: "❌ You don't have permission to close this ticket.",
               ephemeral: true,
@@ -685,9 +693,36 @@ module.exports = {
 
         if (customId.startsWith("ticket_confirm_close_")) {
           const ticketNum = parseInt(customId.replace("ticket_confirm_close_", ""), 10);
+          const ticket = getTicketByNumber(ticketNum);
+
+          if (!ticket) {
+            return interaction.update({
+              content: "❌ Ticket not found or already closed.",
+              components: [],
+            });
+          }
+
+          if (!isBuildLabTeam(interaction.member) && ticket.creator_id !== interaction.user.id) {
+            return interaction.update({
+              content: "❌ You don't have permission to close this ticket.",
+              components: [],
+            });
+          }
+
           await interaction.deferUpdate();
-          await closeTicket(ticketNum, interaction.member, "Resolved in ticket channel");
-          return;
+          const result = await closeTicket(ticketNum, interaction.member, "Resolved in ticket channel");
+
+          if (!result.success) {
+            return interaction.editReply({
+              content: `⚠️ ${result.message}`,
+              components: [],
+            });
+          }
+
+          return interaction.editReply({
+            content: `🔒 **Ticket #${formatTicketNumber(ticketNum)}** has been resolved and closed.`,
+            components: [],
+          });
         }
 
         if (customId.startsWith("ticket_cancel_close_")) {
