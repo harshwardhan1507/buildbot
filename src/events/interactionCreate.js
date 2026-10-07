@@ -5,6 +5,7 @@ const {
   ButtonStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  UserSelectMenuBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -90,7 +91,7 @@ module.exports = {
       // ======================================================================
       // 2. STRING SELECT MENUS
       // ======================================================================
-      if (interaction.isStringSelectMenu()) {
+      if (interaction.isAnySelectMenu ? interaction.isAnySelectMenu() : (interaction.isStringSelectMenu() || interaction.isUserSelectMenu?.())) {
         const customId = interaction.customId;
         console.log(`[INTERACTION] select_menu customId=${customId} user=${userTag}`);
 
@@ -236,6 +237,41 @@ module.exports = {
             console.log(`[INTERACTION] acknowledged select_menu customId=${customId}`);
             return;
           }
+        }
+
+        // Mentor assignment via UserSelectMenu
+        if (customId.startsWith("select_assign_mentor_")) {
+          if (!isBuildLabTeam(interaction.member)) {
+            return interaction.reply({
+              content: "❌ Only BuildLab Team members can assign mentors.",
+              ephemeral: true,
+            });
+          }
+
+          const projectId = customId.replace("select_assign_mentor_", "");
+          const mentorId = interaction.values?.[0];
+
+          if (!mentorId) {
+            return interaction.reply({ content: "❌ No mentor selected.", ephemeral: true });
+          }
+
+          assignMentor(projectId, mentorId);
+          const updated = getTeamStatus(projectId);
+          const teamsCmd = interaction.client.commands.get("teams");
+          if (teamsCmd && typeof teamsCmd.buildTeamProjectView === "function") {
+            const { embed, components } = teamsCmd.buildTeamProjectView(updated);
+            await interaction.update({
+              content: `✅ Assigned <@${mentorId}> as mentor for project \`${projectId}\`!`,
+              embeds: [embed],
+              components,
+            });
+            return;
+          }
+
+          return interaction.update({
+            content: `✅ Assigned <@${mentorId}> as mentor for project \`${projectId}\`!`,
+            components: [],
+          });
         }
 
         // Fallback for unhandled select menus
@@ -584,15 +620,71 @@ module.exports = {
         }
 
         if (customId.startsWith("team_mentor_btn_")) {
+          if (!isBuildLabTeam(interaction.member)) {
+            return interaction.reply({ content: "❌ Only BuildLab Team members can assign mentors.", ephemeral: true });
+          }
+
           const projectId = customId.replace("team_mentor_btn_", "");
+
+          const userSelect = new UserSelectMenuBuilder()
+            .setCustomId(`select_assign_mentor_${projectId}`)
+            .setPlaceholder("Search and select a mentor from the server...")
+            .setMinValues(1)
+            .setMaxValues(1);
+
+          const selectRow = new ActionRowBuilder().addComponents(userSelect);
+          const quickRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`btn_assign_mentor_self_${projectId}`)
+              .setLabel("Assign Myself")
+              .setEmoji("🙋")
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`btn_assign_mentor_modal_${projectId}`)
+              .setLabel("Enter User ID or Name")
+              .setEmoji("⌨️")
+              .setStyle(ButtonStyle.Secondary)
+          );
+
+          return interaction.reply({
+            content: `🧑‍🏫 **Assign Mentor for Project \`${projectId}\`:**\nSelect a mentor from the dropdown below, or click **Assign Myself**:`,
+            components: [selectRow, quickRow],
+            ephemeral: true,
+          });
+        }
+
+        if (customId.startsWith("btn_assign_mentor_self_")) {
+          if (!isBuildLabTeam(interaction.member)) {
+            return interaction.reply({ content: "❌ Only BuildLab Team members can assign mentors.", ephemeral: true });
+          }
+          const projectId = customId.replace("btn_assign_mentor_self_", "");
+          assignMentor(projectId, interaction.user.id);
+          const updated = getTeamStatus(projectId);
+          const teamsCmd = interaction.client.commands.get("teams");
+          if (teamsCmd && typeof teamsCmd.buildTeamProjectView === "function") {
+            const { embed, components } = teamsCmd.buildTeamProjectView(updated);
+            return interaction.update({
+              content: `✅ Assigned <@${interaction.user.id}> as mentor for project \`${projectId}\`!`,
+              embeds: [embed],
+              components,
+            });
+          }
+          return interaction.update({
+            content: `✅ Assigned <@${interaction.user.id}> as mentor for project \`${projectId}\`!`,
+            components: [],
+          });
+        }
+
+        if (customId.startsWith("btn_assign_mentor_modal_")) {
+          const projectId = customId.replace("btn_assign_mentor_modal_", "");
           const modal = new ModalBuilder()
             .setCustomId(`modal_assign_mentor_${projectId}`)
             .setTitle(`Assign Mentor: ${projectId}`);
 
           const mentorInput = new TextInputBuilder()
             .setCustomId("mentor_id")
-            .setLabel("Mentor Discord User ID or @mention")
-            .setPlaceholder("e.g. 123456789012345678 or @mentor")
+            .setLabel("Mentor Discord User ID or @username")
+            .setPlaceholder("e.g. 123456789012345678 or depre")
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
             .setValue(interaction.user.id);
@@ -800,7 +892,19 @@ module.exports = {
         if (customId.startsWith("modal_assign_mentor_")) {
           const projectId = customId.replace("modal_assign_mentor_", "");
           const mentorInput = interaction.fields.getTextInputValue("mentor_id").trim();
-          const cleanMentorId = mentorInput.replace(/[<@!>]/g, "");
+          let cleanMentorId = mentorInput.replace(/[<@!>]/g, "").trim();
+
+          // If the user typed a username (like "depre" instead of a numeric snowflake ID)
+          if (!/^\d{17,20}$/.test(cleanMentorId) && interaction.guild) {
+            const foundMember = interaction.guild.members.cache.find(
+              (m) =>
+                m.user?.username?.toLowerCase() === cleanMentorId.toLowerCase() ||
+                m.displayName?.toLowerCase() === cleanMentorId.toLowerCase()
+            );
+            if (foundMember) {
+              cleanMentorId = foundMember.id;
+            }
+          }
 
           assignMentor(projectId, cleanMentorId);
           const embed = createSuccessEmbed(

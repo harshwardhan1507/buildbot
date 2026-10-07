@@ -855,6 +855,7 @@ async function runTests() {
           cache: rolesCollection,
         },
         members: {
+          cache: new Collection(),
           me: {
             roles: {
               highest: { name: "Bot", position: 50 },
@@ -879,9 +880,11 @@ async function runTests() {
       getResponse() {
         return state.editPayload || state.replyPayload || state.updatePayload || state.followUpPayload;
       },
-      isChatInputCommand: () => overrides.type !== "button" && overrides.type !== "modalSubmit" && overrides.type !== "selectMenu",
+      isChatInputCommand: () => overrides.type !== "button" && overrides.type !== "modalSubmit" && overrides.type !== "selectMenu" && overrides.type !== "userSelectMenu",
       isButton: () => overrides.type === "button",
       isStringSelectMenu: () => overrides.type === "selectMenu",
+      isUserSelectMenu: () => overrides.type === "userSelectMenu",
+      isAnySelectMenu: () => overrides.type === "selectMenu" || overrides.type === "userSelectMenu",
       isModalSubmit: () => overrides.type === "modalSubmit",
       options: {
         getSubcommand: (req = true) => overrides.subcommand || null,
@@ -1308,6 +1311,62 @@ async function runTests() {
 
     const closedRecord = getTicketByNumber(tNum);
     assert.strictEqual(closedRecord.status, "CLOSED");
+  });
+
+  await asyncTest("Mentor assignment via UserSelectMenu, one-click Assign Myself, and username modal", async () => {
+    // 1. Click "Assign Mentor" button -> presents UserSelectMenu and shortcuts
+    const mentorBtnInter = createMockInteraction({
+      type: "button",
+      customId: "team_mentor_btn_BL-PRD-001",
+      roles: [{ id: "role_team", name: "BuildLab Team", position: 30 }],
+    });
+    await interactionCreate.execute(mentorBtnInter);
+    assert.strictEqual(mentorBtnInter._state.acknowledged, true);
+    const btnResp = mentorBtnInter.getResponse();
+    assert.ok(btnResp?.content?.includes("Assign Mentor for Project `BL-PRD-001`"));
+    assert.ok(btnResp?.components?.length >= 2);
+
+    // 2. Select mentor via UserSelectMenu
+    const selectInter = createMockInteraction({
+      type: "userSelectMenu",
+      customId: "select_assign_mentor_BL-PRD-001",
+      values: ["mentor_user_555"],
+      roles: [{ id: "role_team", name: "BuildLab Team", position: 30 }],
+    });
+    await interactionCreate.execute(selectInter);
+    assert.strictEqual(selectInter._state.acknowledged, true);
+    const selectResp = selectInter.getResponse();
+    assert.ok(selectResp?.content?.includes("Assigned <@mentor_user_555>"));
+
+    // 3. Assign Myself button
+    const selfInter = createMockInteraction({
+      type: "button",
+      customId: "btn_assign_mentor_self_BL-PRD-001",
+      user: { id: "mentor_alice_999", username: "alice" },
+      roles: [{ id: "role_team", name: "BuildLab Team", position: 30 }],
+    });
+    await interactionCreate.execute(selfInter);
+    assert.strictEqual(selfInter._state.acknowledged, true);
+    const selfResp = selfInter.getResponse();
+    assert.ok(selfResp?.content?.includes("Assigned <@mentor_alice_999>"));
+
+    // 4. Modal with username (e.g. "@depre") resolves to member snowflake ID
+    const modalInter = createMockInteraction({
+      type: "modalSubmit",
+      customId: "modal_assign_mentor_BL-PRD-001",
+      fieldValues: {
+        mentor_id: "@depre",
+      },
+    });
+    // Add member with username "depre" to guild cache
+    modalInter.guild.members.cache.set("depre_snowflake_777", {
+      id: "depre_snowflake_777",
+      user: { username: "depre" },
+    });
+    await interactionCreate.execute(modalInter);
+    assert.strictEqual(modalInter._state.acknowledged, true);
+    const modalResp = modalInter.getResponse();
+    assert.ok(modalResp?.embeds?.[0]?.data?.description?.includes("<@depre_snowflake_777>"));
   });
 
   // 10. Final Verification: Production DB Untouched
