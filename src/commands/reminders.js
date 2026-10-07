@@ -4,13 +4,13 @@ const {
   setRemindersEnabled,
   checkAndSendReminders,
 } = require("../services/reminders");
-const { isBuildLabTeam, getPermissionDeniedMessage } = require("../utils/permissions");
+const { isTechSpaceAdmin, getPermissionDeniedMessage } = require("../utils/permissions");
 const { createBaseEmbed, createSuccessEmbed, COLORS } = require("../utils/embeds");
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("reminders")
-    .setDescription("Configure automated BuildLab deadline reminders (Team only)")
+    .setDescription("Configure automated BuildLab deadline reminders (Admin only)")
     .addSubcommand((sub) =>
       sub
         .setName("status")
@@ -37,9 +37,9 @@ module.exports = {
    * @param {import("discord.js").ChatInputCommandInteraction} interaction 
    */
   async execute(interaction) {
-    if (!isBuildLabTeam(interaction.member)) {
+    if (!isTechSpaceAdmin(interaction.member)) {
       return interaction.reply({
-        content: getPermissionDeniedMessage("BuildLab Team"),
+        content: getPermissionDeniedMessage("TechSpace Admin"),
         ephemeral: true,
       });
     }

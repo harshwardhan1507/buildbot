@@ -1,13 +1,29 @@
 const config = require("../config/config");
 
+function hasRole(member, roleName) {
+  if (!member || !member.roles || !member.roles.cache) return false;
+  const cache = member.roles.cache;
+  if (typeof cache.some === "function") {
+    return cache.some((r) => r.name.toLowerCase() === roleName.toLowerCase());
+  }
+  if (Array.isArray(cache)) {
+    return cache.some((r) => r.name.toLowerCase() === roleName.toLowerCase());
+  }
+  if (typeof cache.values === "function") {
+    for (const r of cache.values()) {
+      if (r.name && r.name.toLowerCase() === roleName.toLowerCase()) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Checks if a GuildMember has the TechSpace Admin role
  * @param {import("discord.js").GuildMember} member 
  * @returns {boolean}
  */
 function isTechSpaceAdmin(member) {
-  if (!member || !member.roles) return false;
-  return member.roles.cache.some((role) => role.name === config.roles.admin);
+  return hasRole(member, config.roles.admin);
 }
 
 /**
@@ -16,10 +32,7 @@ function isTechSpaceAdmin(member) {
  * @returns {boolean}
  */
 function isBuildLabTeam(member) {
-  if (!member || !member.roles) return false;
-  return member.roles.cache.some(
-    (role) => role.name === config.roles.team || role.name === config.roles.admin
-  );
+  return hasRole(member, config.roles.team) || hasRole(member, config.roles.admin);
 }
 
 /**
@@ -28,9 +41,9 @@ function isBuildLabTeam(member) {
  * @returns {string|null} Track name if member has one, otherwise null
  */
 function getMemberTrack(member) {
-  if (!member || !member.roles) return null;
+  if (!member || !member.roles || !member.roles.cache) return null;
   for (const track of config.trackNames) {
-    if (member.roles.cache.some((r) => r.name.toLowerCase() === track.toLowerCase())) {
+    if (hasRole(member, track)) {
       return track;
     }
   }

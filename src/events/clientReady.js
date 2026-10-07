@@ -32,6 +32,17 @@ module.exports = {
       console.error("❌ Failed to register slash commands:", error.message);
     }
 
+    // Validate track role configuration on startup
+    try {
+      const { validateGuildTrackRoles } = require("../services/roles");
+      const guild = client.guilds.cache.get(config.discord.guildId);
+      if (guild) {
+        validateGuildTrackRoles(guild);
+      }
+    } catch (roleErr) {
+      console.error("❌ Error verifying track role configuration:", roleErr.message);
+    }
+
     // Start background services
     try {
       startReminderService(client);

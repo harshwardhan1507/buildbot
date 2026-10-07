@@ -7,77 +7,84 @@ const {
 const { createBaseEmbed, COLORS } = require("../utils/embeds");
 
 const HELP_DATA = {
-  help_debugging: {
-    title: "🐛 Debugging Support",
+  help_prd: {
+    title: "📋 Project Proposal & PRD Help",
     text:
-      "→ **Channel:** Use <#debugging>\n" +
-      "→ Explain **expected vs actual** behaviour\n" +
-      "→ Include relevant **error messages** and logs\n" +
-      "→ Include the smallest relevant code snippet\n" +
-      "→ ⚠️ **Never share** API keys, passwords, or secrets!",
+      "**Need help scoping or submitting your project?**\n\n" +
+      "• Pick a track: **Beginner** (Solo), **Intermediate** (Duo), or **Advanced** (Squad).\n" +
+      "• Browse project catalogues or bring your own idea.\n" +
+      "• Use `/prd submit` to write your problem statement, features, and tech stack.\n" +
+      "• Mentors review proposals and approve them for development.\n\n" +
+      "💬 Discuss ideas in <#project-discussion>",
+    action: "submit_prd",
   },
   help_github: {
-    title: "🐙 Git & GitHub Support",
+    title: "🐙 Git & GitHub Workflow",
     text:
-      "→ **Channel:** Use <#github-help>\n" +
-      "→ Ask about Git commands, branches, commits, PRs, and merge conflicts\n" +
-      "→ Mention repository name and the exact git command you ran\n" +
-      "→ ⚠️ Never commit or share `.env` files or tokens!",
+      "**Need help with your project repository?**\n\n" +
+      "1. `git clone <repo-url>` — Clone your project locally\n" +
+      "2. `git checkout -b feature-name` — Work on a feature branch\n" +
+      "3. `git add .` & `git commit -m \"message\"` — Save your changes\n" +
+      "4. `git push origin feature-name` — Upload to GitHub\n" +
+      "5. Open a Pull Request on GitHub to merge into `main`\n\n" +
+      "⚠️ *Never commit passwords, API keys, or `.env` files!*",
+    action: "ticket",
   },
-  help_prd: {
-    title: "📋 PRD Help & Clarifications",
+  help_debugging: {
+    title: "🐛 Debugging & Code Assistance",
     text:
-      "→ **Channel:** Use <#project-discussion>\n" +
-      "→ Ask about PRD scope, problem statements, requirements, or milestones\n" +
-      "→ Use `/prd submit` to submit your project PRD for mentor review\n" +
-      "→ Check <#rules> for PRD guidelines",
+      "**Stuck on an error or unexpected bug?**\n\n" +
+      "• Check console error logs and terminal stack traces.\n" +
+      "• Search documentation and verify installed package versions.\n" +
+      "• Share the exact error message and code snippet in <#debugging>.\n" +
+      "• If blocked, open a support ticket to get 1-on-1 mentor guidance.",
+    action: "ticket",
   },
-  help_scope: {
-    title: "💡 Project Scope Guidance",
+  help_ticket: {
+    title: "🎫 Mentor Support Tickets",
     text:
-      "→ **Channel:** Use <#project-discussion>\n" +
-      "→ Discuss whether specific features belong in **Core** or **Stretch** goals\n" +
-      "→ Prioritize getting a working MVP built first before expanding scope\n" +
-      "→ Tag a mentor if you need advice on technical feasibility",
-  },
-  help_submission: {
-    title: "📦 Project Submission",
-    text:
-      "→ **Channel:** Use <#submissions>\n" +
-      "→ Ensure your PRD is approved before final submission\n" +
-      "→ Complete your GitHub README, documentation, and live demo\n" +
-      "→ Follow the format outlined in the pinned guide in <#submissions>",
+      "**Need private help from the BuildLab Team?**\n\n" +
+      "• Run `/ticket` to open a private channel between you and mentors.\n" +
+      "• Select your issue: Technical Bug, GitHub, PRD Scope, or General Doubt.\n" +
+      "• A mentor will claim your ticket and assist you step-by-step.",
+    action: "ticket",
   },
   help_general: {
-    title: "❓ General Assistance",
+    title: "❓ General BuildLab Guidelines",
     text:
-      "→ **Channel:** Use <#help>\n" +
-      "→ Ask here when you're not sure which channel your problem belongs to\n" +
-      "→ Search existing messages or check <#getting-started> first\n" +
-      "→ Be specific about what you are trying to accomplish",
+      "**Welcome to BuildLab ’26!**\n\n" +
+      "• Check <#announcements> for schedules and deadlines.\n" +
+      "• Read <#rules> and <#getting-started> for community guidelines.\n" +
+      "• Run `/start` to see your setup and next steps.\n" +
+      "• Reach out anytime in <#general> or ask in <#help>.",
+    action: "start",
   },
 };
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("help")
-    .setDescription("Interactive BuildLab help and support guide"),
+    .setDescription("Find help and guidance for your project"),
 
   /**
    * @param {import("discord.js").ChatInputCommandInteraction} interaction 
    */
   async execute(interaction) {
     if (!interaction.deferred && !interaction.replied) {
-      await interaction.deferReply();
+      await interaction.deferReply({ ephemeral: true });
     }
 
-    const embed = createBaseEmbed("🆘 BuildLab Help", "What do you need help with?\nClick a button below for guidance.", COLORS.DEFAULT);
+    const embed = createBaseEmbed(
+      "🆘 BUILDLAB HELP",
+      "What do you need assistance with? Click a button below for clear guidance:",
+      COLORS.DEFAULT
+    );
 
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId("help_debugging")
-        .setLabel("Debugging")
-        .setEmoji("🐛")
+        .setCustomId("help_prd")
+        .setLabel("Project / PRD")
+        .setEmoji("📋")
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId("help_github")
@@ -85,22 +92,17 @@ module.exports = {
         .setEmoji("🐙")
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId("help_prd")
-        .setLabel("PRD")
-        .setEmoji("📋")
+        .setCustomId("help_debugging")
+        .setLabel("Debugging")
+        .setEmoji("🐛")
         .setStyle(ButtonStyle.Primary)
     );
 
     const row2 = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId("help_scope")
-        .setLabel("Project Scope")
-        .setEmoji("💡")
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId("help_submission")
-        .setLabel("Submission")
-        .setEmoji("📦")
+        .setCustomId("help_ticket")
+        .setLabel("Support Ticket")
+        .setEmoji("🎫")
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId("help_general")
@@ -110,21 +112,9 @@ module.exports = {
     );
 
     if (interaction.deferred) {
-      return interaction.editReply({
-        embeds: [embed],
-        components: [row1, row2],
-      });
+      return interaction.editReply({ embeds: [embed], components: [row1, row2] });
     }
-    if (interaction.replied) {
-      return interaction.followUp({
-        embeds: [embed],
-        components: [row1, row2],
-      });
-    }
-    return interaction.reply({
-      embeds: [embed],
-      components: [row1, row2],
-    });
+    return interaction.reply({ embeds: [embed], components: [row1, row2], ephemeral: true });
   },
 
   /**
@@ -140,12 +130,37 @@ module.exports = {
     }
 
     const embed = createBaseEmbed(data.title, data.text, COLORS.INFO);
+
+    const actionRow = new ActionRowBuilder();
+    if (data.action === "ticket") {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId("ticket_open_direct")
+          .setLabel("Open Support Ticket")
+          .setEmoji("🎫")
+          .setStyle(ButtonStyle.Success)
+      );
+    } else if (data.action === "submit_prd") {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId("start_submit_prd")
+          .setLabel("Submit PRD")
+          .setEmoji("📝")
+          .setStyle(ButtonStyle.Success)
+      );
+    } else {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId("status_view_own")
+          .setLabel("My Project Status")
+          .setEmoji("📊")
+          .setStyle(ButtonStyle.Primary)
+      );
+    }
+
     if (interaction.deferred) {
-      return interaction.editReply({ embeds: [embed] });
+      return interaction.editReply({ embeds: [embed], components: [actionRow] });
     }
-    if (interaction.replied) {
-      return interaction.followUp({ embeds: [embed], ephemeral: true });
-    }
-    return interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: true });
   },
 };

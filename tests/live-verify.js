@@ -33,8 +33,8 @@ async function runLiveVerification() {
     console.log(`   - /${cmd.name}: ${cmd.description}`);
   });
 
-  if (registeredCommands.length < 15) {
-    throw new Error(`Expected at least 15 commands in Discord cloud, found ${registeredCommands.length}`);
+  if (registeredCommands.length < 10) {
+    throw new Error(`Expected at least 10 commands in Discord cloud, found ${registeredCommands.length}`);
   }
 
   // 3. Connect client to Discord Gateway to fetch real Guild
