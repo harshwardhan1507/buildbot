@@ -20,7 +20,7 @@ const {
   isSubmitterToken,
   validatePdf,
 } = require("../services/prd");
-const { assignTrackRole } = require("../services/roles");
+const { assignTrackRole, assignTrackRoleToTeam } = require("../services/roles");
 const { isBuildLabTeam, getPermissionDeniedMessage } = require("../utils/permissions");
 const { createBaseEmbed, createSuccessEmbed, createWarningEmbed, createErrorEmbed, COLORS } = require("../utils/embeds");
 
@@ -554,6 +554,16 @@ module.exports = {
           ephemeral: true,
         });
       }
+
+      // Assign track role to all team members (owner + teammates) upon approval
+      let roleInfo = "";
+      if (interaction.guild) {
+        const teamRoleResult = await assignTrackRoleToTeam(interaction.guild, updated);
+        if (teamRoleResult.assignedMembers.length > 0) {
+          roleInfo = `\n\n🎭 **Track Role Assigned:** @${updated.track} assigned to **${teamRoleResult.assignedMembers.length}** team member(s).`;
+        }
+      }
+
       return interaction.reply({
         embeds: [
           createSuccessEmbed(
@@ -562,7 +572,7 @@ module.exports = {
               `**Track:** ${updated.track}\n` +
               `**Owner:** <@${updated.owner_id}>\n\n` +
               `**Mentor Feedback:**\n> ${feedback}\n\n` +
-              `The proposal is approved and project state is set to **DEVELOPMENT**.`
+              `The proposal is approved and project state is set to **DEVELOPMENT**.*${roleInfo}*`
           ),
         ],
       });

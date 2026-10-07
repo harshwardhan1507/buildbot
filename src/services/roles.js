@@ -227,9 +227,93 @@ async function assignTrackRole(member, targetTrack) {
   };
 }
 
+/**
+ * Assigns the project's track role to all team members (owner + teammates) in the guild.
+ * 
+ * @param {import("discord.js").Guild} guild 
+ * @param {object} project - The project record with track, owner_id, and team_members
+ * @returns {Promise<{ success: boolean, track: string, assignedMembers: Array<{ id: string, name: string }>, failedMembers: Array<{ id: string, error: string }> }>}
+ */
+async function assignTrackRoleToTeam(guild, project) {
+  if (!guild || !project || !project.track) {
+    return {
+      success: false,
+      track: project?.track || null,
+      assignedMembers: [],
+      failedMembers: [],
+    };
+  }
+
+  const { parseTeammateTokens, cleanMemberToken } = require("./prd");
+
+  const memberIdentifiers = new Set();
+  // 1. Always include the project owner/lead
+  if (project.owner_id) {
+    memberIdentifiers.add(project.owner_id.trim());
+  }
+
+  // 2. Parse teammates from team_members string
+  if (project.team_members) {
+    const tokens = parseTeammateTokens(project.team_members);
+    for (const t of tokens) {
+      const idMatch = t.match(/^<@!?([a-zA-Z0-9_\-]+)>$/);
+      if (idMatch) {
+        memberIdentifiers.add(idMatch[1]);
+      } else {
+        const clean = cleanMemberToken(t);
+        if (clean) memberIdentifiers.add(clean);
+      }
+    }
+  }
+
+  const assignedMembers = [];
+  const failedMembers = [];
+
+  for (const ident of memberIdentifiers) {
+    try {
+      let member = null;
+      // First check cache / fetch by ID
+      if (guild.members?.cache?.get) {
+        member = guild.members.cache.get(ident);
+      }
+      if (!member && typeof guild.members?.fetch === "function") {
+        member = await guild.members.fetch(ident).catch(() => null);
+      }
+
+      // If not found by ID, search by username in cache
+      if (!member && guild.members?.cache?.find) {
+        member = guild.members.cache.find(
+          (m) => m.user?.username?.toLowerCase() === ident.toLowerCase()
+        );
+      }
+
+      if (member) {
+        const res = await assignTrackRole(member, project.track);
+        if (res.success) {
+          assignedMembers.push({ id: member.id, name: member.user?.username || member.id });
+        } else {
+          failedMembers.push({ id: member.id, error: res.message });
+        }
+      } else {
+        failedMembers.push({ id: ident, error: "Member not found in guild" });
+      }
+    } catch (err) {
+      failedMembers.push({ id: ident, error: err.message });
+    }
+  }
+
+  return {
+    success: true,
+    track: project.track,
+    assignedMembers,
+    failedMembers,
+  };
+}
+
 module.exports = {
   getTrackKey,
   findTrackRole,
   validateGuildTrackRoles,
   assignTrackRole,
+  assignTrackRoleToTeam,
 };

@@ -155,7 +155,7 @@ function validateRepoUrl(repoInput) {
 function cleanMemberToken(token) {
   if (!token) return "";
   return token
-    .replace(/^<@!?(\d+)>$/, "$1")
+    .replace(/^<@!?([a-zA-Z0-9_\-]+)>$/, "$1")
     .replace(/^@/, "")
     .toLowerCase()
     .trim();

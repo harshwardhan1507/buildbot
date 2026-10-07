@@ -62,6 +62,7 @@ const {
 } = require("../src/utils/permissions");
 const {
   assignTrackRole,
+  assignTrackRoleToTeam,
   findTrackRole,
   validateGuildTrackRoles,
 } = require("../src/services/roles");
@@ -415,6 +416,59 @@ async function runTests() {
     const res = await assignTrackRole(member, "Intermediate");
     assert.strictEqual(res.success, false);
     assert.ok(res.message.includes("hierarchy"));
+  });
+
+  await asyncTest("assignTrackRoleToTeam assigns track role to all team members (owner + teammates) on PRD approval", async () => {
+    // 1. Setup mock guild with 3 members: lead, tm1, tm2
+    const lead = createMockGuildMember([]);
+    lead.id = "user_lead_101";
+    lead.user.id = "user_lead_101";
+    lead.user.username = "teamlead";
+
+    const tm1 = createMockGuildMember([]);
+    tm1.id = "user_tm1_102";
+    tm1.user.id = "user_tm1_102";
+    tm1.user.username = "teammate1";
+
+    const tm2 = createMockGuildMember([]);
+    tm2.id = "user_tm2_103";
+    tm2.user.id = "user_tm2_103";
+    tm2.user.username = "teammate2";
+
+    const membersCache = new Map();
+    membersCache.set("user_lead_101", lead);
+    membersCache.set("user_tm1_102", tm1);
+    membersCache.set("user_tm2_103", tm2);
+
+    const guild = {
+      ...lead.guild,
+      members: {
+        cache: membersCache,
+        fetch: async (id) => membersCache.get(id) || null,
+      },
+    };
+
+    // Advanced project with lead + 2 teammates
+    const project = {
+      id: "BL-PRD-099",
+      track: "Advanced",
+      owner_id: "user_lead_101",
+      team_members: "<@user_tm1_102>, <@user_tm2_103>",
+    };
+
+    const result = await assignTrackRoleToTeam(guild, project);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.assignedMembers.length, 3);
+
+    // Verify all 3 members received Advanced role
+    assert.strictEqual(lead._addedCalls.includes("Advanced"), true);
+    assert.strictEqual(tm1._addedCalls.includes("Advanced"), true);
+    assert.strictEqual(tm2._addedCalls.includes("Advanced"), true);
+
+    // Verify database records updated
+    assert.strictEqual(getUser("user_lead_101").track, "Advanced");
+    assert.strictEqual(getUser("user_tm1_102").track, "Advanced");
+    assert.strictEqual(getUser("user_tm2_103").track, "Advanced");
   });
 
   // 5. PRD Submission, Idempotence & GitHub Association

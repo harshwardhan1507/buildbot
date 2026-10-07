@@ -28,6 +28,7 @@ const {
   getProjectMilestones,
   updateMilestoneStatus,
 } = require("../services/milestones");
+const { assignTrackRoleToTeam } = require("../services/roles");
 const { isBuildLabTeam, isTechSpaceAdmin } = require("../utils/permissions");
 const { createBaseEmbed, createSuccessEmbed, createWarningEmbed, createErrorEmbed, COLORS } = require("../utils/embeds");
 
@@ -415,9 +416,16 @@ module.exports = {
               ephemeral: true,
             });
           }
+          let roleInfo = "";
+          if (interaction.guild) {
+            const teamRoleResult = await assignTrackRoleToTeam(interaction.guild, updated);
+            if (teamRoleResult.assignedMembers.length > 0) {
+              roleInfo = `\n\n🎭 **Track Role Assigned:** @${updated.track} assigned to **${teamRoleResult.assignedMembers.length}** team member(s).`;
+            }
+          }
           const embed = createSuccessEmbed(
             "Proposal Approved! 🎉",
-            `Project **${updated.title}** (\`${updated.id}\`) is now approved for **DEVELOPMENT**.`
+            `Project **${updated.title}** (\`${updated.id}\`) is now approved for **DEVELOPMENT**.*${roleInfo}*`
           );
           return interaction.reply({ embeds: [embed] });
         }
