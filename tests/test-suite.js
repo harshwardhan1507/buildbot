@@ -199,15 +199,23 @@ async function runTests() {
     assert.ok(res.error.includes("You currently have 5 members"));
   });
 
-  test("Submitter duplicated in teammate list is rejected", () => {
+  test("Submitter self-mention in teammate list is automatically filtered and accepted without error", () => {
+    // Advanced: Submitter Alice + 2 teammates (@bob, @charlie) with self-mention (@alice) included -> 3 members total
     const resByUsername = validateTeamSize("Advanced", "@alice, @bob, @charlie", { username: "alice", id: "1001" });
-    assert.strictEqual(resByUsername.valid, false);
-    assert.ok(resByUsername.error.includes("You are already included as the team lead"));
-    assert.ok(resByUsername.error.includes("Please select your teammates instead"));
+    assert.strictEqual(resByUsername.valid, true);
+    assert.strictEqual(resByUsername.count, 3);
+    assert.strictEqual(resByUsername.teammates.length, 2);
 
-    const resById = validateTeamSize("Intermediate", "<@1001>", { username: "alice", id: "1001" });
-    assert.strictEqual(resById.valid, false);
-    assert.ok(resById.error.includes("You are already included as the team lead"));
+    // Intermediate: Submitter Alice + 1 teammate (@bob) with self-mention ID (<@1001>) -> 2 members total
+    const resById = validateTeamSize("Intermediate", "<@1001>, @bob", { username: "alice", id: "1001" });
+    assert.strictEqual(resById.valid, true);
+    assert.strictEqual(resById.count, 2);
+    assert.strictEqual(resById.teammates.length, 1);
+
+    // Beginner: Submitter Alice enters self-mention -> treated as Solo 1 member
+    const resSolo = validateTeamSize("Beginner", "@alice", { username: "alice", id: "1001" });
+    assert.strictEqual(resSolo.valid, true);
+    assert.strictEqual(resSolo.count, 1);
   });
 
   test("Duplicate teammates listed are rejected", () => {

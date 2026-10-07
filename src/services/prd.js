@@ -252,31 +252,22 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
 
   const teammateTokens = parseTeammateTokens(teamMembersInput);
 
-  // 1. Deduplication Check: Submitter must never be in teammate list
-  if (ownerUser) {
-    for (const token of teammateTokens) {
-      if (isSubmitterToken(token, ownerUser)) {
-        return {
-          valid: false,
-          count: 1 + teammateTokens.length,
-          members: [],
-          teammates: teammateTokens,
-          error: "You are already included as the team lead.\n\nPlease select your teammates instead.",
-        };
-      }
-    }
-  }
+  // 1. Deduplication: Automatically filter out submitter self-mentions
+  // so participants who include themselves in the teammate list are seamlessly accepted
+  const effectiveTeammates = ownerUser
+    ? teammateTokens.filter((token) => !isSubmitterToken(token, ownerUser))
+    : teammateTokens;
 
-  // 2. Deduplication Check: No duplicate teammates
+  // 2. Deduplication Check: No duplicate teammates among remaining members
   const seenTeammates = new Set();
-  for (const token of teammateTokens) {
+  for (const token of effectiveTeammates) {
     const clean = cleanMemberToken(token);
     if (seenTeammates.has(clean)) {
       return {
         valid: false,
-        count: 1 + teammateTokens.length,
+        count: 1 + effectiveTeammates.length,
         members: [],
-        teammates: teammateTokens,
+        teammates: effectiveTeammates,
         error: `Duplicate teammate found: \`${token}\`.\n\nPlease list each teammate only once.`,
       };
     }
@@ -285,13 +276,13 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
 
   // 3. Total Team Calculation
   // The submitter is automatically 1 member of the team
-  const teammatesCount = teammateTokens.length;
+  const teammatesCount = effectiveTeammates.length;
   const totalCount = 1 + teammatesCount;
 
   const ownerTag = ownerUser?.username
     ? `@${ownerUser.username}`
     : (ownerUser?.id ? `<@${ownerUser.id}>` : "You");
-  const allMembers = [ownerTag, ...teammateTokens];
+  const allMembers = [ownerTag, ...effectiveTeammates];
 
   // 4. Track-specific validation
   if (normTrack === "Beginner") {
@@ -300,7 +291,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
         valid: true,
         count: 1,
         members: allMembers,
-        teammates: teammateTokens,
+        teammates: effectiveTeammates,
         summary: "Beginner · Solo · 1 member",
       };
     }
@@ -308,7 +299,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
       valid: false,
       count: totalCount,
       members: allMembers,
-      teammates: teammateTokens,
+      teammates: effectiveTeammates,
       error: "Beginner is a Solo track.\n\nYou cannot add teammates to a Beginner project.",
     };
   }
@@ -319,7 +310,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
         valid: true,
         count: 2,
         members: allMembers,
-        teammates: teammateTokens,
+        teammates: effectiveTeammates,
         summary: "Intermediate · Duo · 2 members",
       };
     }
@@ -329,7 +320,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
         valid: false,
         count: 1,
         members: allMembers,
-        teammates: teammateTokens,
+        teammates: effectiveTeammates,
         error: "Intermediate teams require exactly 2 members total.\n\nPlease add 1 teammate.",
       };
     }
@@ -338,7 +329,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
       valid: false,
       count: totalCount,
       members: allMembers,
-      teammates: teammateTokens,
+      teammates: effectiveTeammates,
       error: `Intermediate teams require exactly 2 members total.\n\nYou currently have ${totalCount} members.`,
     };
   }
@@ -349,7 +340,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
         valid: true,
         count: totalCount,
         members: allMembers,
-        teammates: teammateTokens,
+        teammates: effectiveTeammates,
         summary: `Advanced · Squad · ${totalCount} members`,
       };
     }
@@ -359,7 +350,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
         valid: false,
         count: 1,
         members: allMembers,
-        teammates: teammateTokens,
+        teammates: effectiveTeammates,
         error: "Advanced teams must have 3–4 members total.\n\nYou are currently the only member.\n\nPlease add 2–3 teammates.",
       };
     }
@@ -369,7 +360,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
         valid: false,
         count: 2,
         members: allMembers,
-        teammates: teammateTokens,
+        teammates: effectiveTeammates,
         error: "Advanced teams must have 3–4 members total.\n\nYou currently have 2 members:\n• You\n• 1 teammate\n\nPlease add 1–2 more teammate(s).",
       };
     }
@@ -378,7 +369,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
       valid: false,
       count: totalCount,
       members: allMembers,
-      teammates: teammateTokens,
+      teammates: effectiveTeammates,
       error: `Advanced teams must have 3–4 members total.\n\nYou currently have ${totalCount} members.`,
     };
   }
@@ -387,7 +378,7 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
     valid: false,
     count: totalCount,
     members: allMembers,
-    teammates: teammateTokens,
+    teammates: effectiveTeammates,
     error: `Invalid configuration for track ${track}.`,
   };
 }
