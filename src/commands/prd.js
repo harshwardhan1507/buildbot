@@ -15,6 +15,9 @@ const {
   getPrdByOwnerId,
   validateRepoUrl,
   validateTeamSize,
+  parseTeammateTokens,
+  cleanMemberToken,
+  isSubmitterToken,
   validatePdf,
 } = require("../services/prd");
 const { assignTrackRole } = require("../services/roles");
@@ -56,14 +59,25 @@ function createStep1Modal(existing = null) {
         : existing?.project_type || "Own Idea"
     );
 
+  let prefillTeam = "Solo";
+  if (existing?.team_members) {
+    if (existing.track === "Beginner" || existing.team_members.toLowerCase() === "solo") {
+      prefillTeam = "Solo";
+    } else {
+      const tokens = parseTeammateTokens(existing.team_members);
+      const teammatesOnly = tokens.filter((t) => !isSubmitterToken(t, { id: existing.owner_id }));
+      prefillTeam = teammatesOnly.join(", ") || (existing.track === "Beginner" ? "Solo" : "");
+    }
+  }
+
   const teamInput = new TextInputBuilder()
     .setCustomId("prd_team")
-    .setLabel("Team Members (Solo or @partner mentions)")
-    .setPlaceholder("e.g. Solo (for Beginner) or @teammate")
+    .setLabel("Teammates (Solo or @teammate mentions)")
+    .setPlaceholder("e.g. Solo (for Beginner), @partner, @b, @c")
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMaxLength(150)
-    .setValue(existing?.team_members || "Solo");
+    .setValue(prefillTeam);
 
   const titleInput = new TextInputBuilder()
     .setCustomId("prd_title")
@@ -323,8 +337,8 @@ function buildPrdViewEmbed(prd, isStaff = false) {
     : prd.project_type || "Own Idea";
 
   const embed = createBaseEmbed(
-    `📋 ${prd.title}`,
-    `**Project ID:** \`${prd.id}\` • **Status:** ${statusLabel}\n` +
+    `📋 ${prd.title} (${prd.id})`,
+    `🆔 **Project ID:** \`${prd.id}\` • **Status:** ${statusLabel}\n` +
       `**Track:** **${prd.track}** • **Type:** ${typeLabel}\n` +
       `**Owner:** <@${prd.owner_id}> • **Team:** ${prd.team_members || "Solo"}`,
     color
@@ -533,6 +547,12 @@ module.exports = {
       const updated = updatePrdStatus(id, "Approved", feedback);
       if (!updated) {
         return interaction.reply({ embeds: [createErrorEmbed("Proposal Not Found", `No proposal found with ID \`${id}\`.`)], ephemeral: true });
+      }
+      if (updated.error) {
+        return interaction.reply({
+          embeds: [createErrorEmbed("Cannot Approve Duplicate Project", updated.error)],
+          ephemeral: true,
+        });
       }
       return interaction.reply({
         embeds: [
@@ -1044,15 +1064,20 @@ module.exports = {
 
     try {
       // 1. Submit or update PRD in database as one coherent record
+      const completeTeamString = teamCheck.count === 1
+        ? (draft.track === "Beginner" ? "Solo" : teamCheck.members.join(", "))
+        : teamCheck.members.join(", ");
+
       const prdData = {
         ...draft,
+        team_members: completeTeamString,
         owner_id: interaction.user.id,
         milestones: `1. Setup repository & environment\n2. Core architecture & database\n3. ${draft.core_features.slice(0, 100)}\n4. Testing & integration\n5. Final demo & submission`,
       };
 
       const savedPrd = submitPrd(prdData);
 
-      // 2. Automatically assign Track Role and clean up conflicting track roles (Section 20 & 21)
+      // 2. Automatically assign Track Role to submitter and valid teammates
       let roleText = `@${draft.track}`;
       let roleWarning = "";
 
@@ -1063,6 +1088,32 @@ module.exports = {
         } else {
           console.error(`[ROLE ASSIGNMENT FAILURE] user=${interaction.user.id} track=${draft.track}: ${roleResult.message}`);
           roleWarning = "\n\n⚠️ **TRACK ROLE COULD NOT BE ASSIGNED AUTOMATICALLY.**\nPlease contact the BuildLab Team.";
+        }
+      }
+
+      // Assign track role to teammates if present in guild
+      if (interaction.guild?.members && teamCheck.teammates && teamCheck.teammates.length > 0) {
+        for (const tm of teamCheck.teammates) {
+          try {
+            const idMatch = tm.match(/^<@!?(\d+)>$/) || tm.match(/^(\d{17,20})$/);
+            let member = null;
+            if (idMatch) {
+              member = interaction.guild.members.cache?.get?.(idMatch[1]) ||
+                (await interaction.guild.members.fetch?.(idMatch[1]).catch(() => null));
+            } else if (interaction.guild.members.cache?.find) {
+              const clean = cleanMemberToken(tm);
+              member = interaction.guild.members.cache.find(
+                (m) => m.user?.username?.toLowerCase() === clean
+              );
+            }
+            if (member) {
+              await assignTrackRole(member, draft.track).catch((err) => {
+                console.warn(`Could not assign track role to teammate ${member.id}:`, err.message);
+              });
+            }
+          } catch (err) {
+            console.warn(`Teammate role assignment error for ${tm}:`, err.message);
+          }
         }
       }
 

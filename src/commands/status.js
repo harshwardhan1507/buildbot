@@ -83,7 +83,8 @@ module.exports = {
 
       const embed = createBaseEmbed(
         "YOUR BUILDLAB STATUS",
-        `**PROJECT**\n${project.title}\n\n` +
+        `🆔 **PROJECT ID**\n\`${project.id}\`\n\n` +
+          `**PROJECT**\n${project.title}\n\n` +
           `**TRACK**\n${project.track} · ${teamFormat}\n\n` +
           `**PRD**\n${prdStatusIcons[project.status] || project.status}\n\n` +
           `**GITHUB**\n${ghStatus}\n\n` +

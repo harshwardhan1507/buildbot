@@ -147,14 +147,94 @@ function validateRepoUrl(repoInput) {
 
 /**
  * Validates team members string against track team size requirements
- * Beginner: 1 member (Solo)
- * Intermediate: 2 members (Duo)
- * Advanced: 3–4 members (Squad)
+/**
+ * Normalizes member token (strips mentions, @, whitespace, and lowercases)
+ * @param {string} token 
+ * @returns {string}
+ */
+function cleanMemberToken(token) {
+  if (!token) return "";
+  return token
+    .replace(/^<@!?(\d+)>$/, "$1")
+    .replace(/^@/, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Parses teammate tokens from user input, handling commas, pipes, newlines,
+ * spaces between mentions, and filtering out keywords like "solo", "none", "n/a".
+ * @param {string} input 
+ * @returns {string[]}
+ */
+function parseTeammateTokens(input) {
+  if (!input || typeof input !== "string") return [];
+  const trimmed = input.trim();
+  if (!trimmed) return [];
+
+  const lower = trimmed.toLowerCase();
+  if (lower === "solo" || lower === "none" || lower === "n/a" || lower === "-") {
+    return [];
+  }
+
+  const rawParts = trimmed.split(/[,|\n]+/);
+  const tokens = [];
+
+  for (const part of rawParts) {
+    const p = part.trim();
+    if (!p) continue;
+    const pLower = p.toLowerCase();
+    if (pLower === "solo" || pLower === "none" || pLower === "n/a" || pLower === "-") continue;
+
+    // Check if multiple mentions exist without commas (e.g. "<@111> <@222>" or "@bob @charlie")
+    const mentionMatches = p.match(/<@!?\d+>|@[\w.-]+/g);
+    if (mentionMatches && mentionMatches.length > 1 && !p.includes(",")) {
+      for (const m of mentionMatches) {
+        tokens.push(m.trim());
+      }
+    } else {
+      tokens.push(p);
+    }
+  }
+
+  return tokens;
+}
+
+/**
+ * Checks if a member token refers to the submitter/owner
+ * @param {string} token 
+ * @param {object} [ownerUser] 
+ * @returns {boolean}
+ */
+function isSubmitterToken(token, ownerUser) {
+  if (!ownerUser) return false;
+  const clean = cleanMemberToken(token);
+  if (!clean) return false;
+
+  if (ownerUser.id && clean === ownerUser.id.toLowerCase()) return true;
+  if (ownerUser.username && clean === ownerUser.username.toLowerCase()) return true;
+  if (ownerUser.tag && clean === ownerUser.tag.toLowerCase()) return true;
+  return false;
+}
+
+/**
+ * Centralized BuildLab Team Size & Member Validator
+ * 
+ * Rules:
+ * - Submitter is automatically 1 member of the team.
+ * - TOTAL MEMBERS = 1 (submitter) + teammates.length.
+ * - Beginner: Exactly 1 total member (submitter only, 0 teammates).
+ * - Intermediate: Exactly 2 total members (submitter + 1 teammate).
+ * - Advanced: 3–4 total members (submitter + 2 or 3 teammates).
+ * 
+ * Deduplication:
+ * - Submitter must never appear in the teammate list.
+ * - Duplicate teammates are strictly rejected.
  * 
  * @param {string} track 
  * @param {string} teamMembersInput 
- * @param {object} [ownerUser] 
- * @returns {{ valid: boolean, count: number, members: string[], error?: string }}
+ * @param {object} [ownerUser] - Submitting Discord user or member object
+ * @returns {{ valid: boolean, count: number, members: string[], teammates: string[], summary?: string, error?: string }}
  */
 function validateTeamSize(track, teamMembersInput, ownerUser = null) {
   const normTrack = track ? track.charAt(0).toUpperCase() + track.slice(1).toLowerCase() : "";
@@ -165,95 +245,169 @@ function validateTeamSize(track, teamMembersInput, ownerUser = null) {
       valid: false,
       count: 0,
       members: [],
+      teammates: [],
       error: `Invalid track '${track}'. Must be Beginner, Intermediate, or Advanced.`,
     };
   }
 
-  // Parse member tokens from input: commas, pipes, spaces, @mentions
-  const rawInput = teamMembersInput ? teamMembersInput.trim() : "";
-  let memberTokens = [];
+  const teammateTokens = parseTeammateTokens(teamMembersInput);
 
-  if (rawInput) {
-    memberTokens = rawInput
-      .split(/[,|\n]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.toLowerCase().startsWith("solo"));
-  }
-
-  // Ensure owner is accounted for
-  const ownerTag = ownerUser?.username ? `@${ownerUser.username}` : (ownerUser?.id ? `<@${ownerUser.id}>` : "Owner");
-  
-  // Deduplicate and filter out redundant self-mentions
-  const uniqueTeammates = [];
-  for (const m of memberTokens) {
-    const clean = m.toLowerCase();
-    const isOwner =
-      ownerUser &&
-      (clean === ownerUser.username?.toLowerCase() ||
-        clean === `@${ownerUser.username?.toLowerCase()}` ||
-        clean === ownerUser.id ||
-        clean === `<@${ownerUser.id}>`);
-
-    if (!isOwner && !uniqueTeammates.some((u) => u.toLowerCase() === clean)) {
-      uniqueTeammates.push(m);
+  // 1. Deduplication Check: Submitter must never be in teammate list
+  if (ownerUser) {
+    for (const token of teammateTokens) {
+      if (isSubmitterToken(token, ownerUser)) {
+        return {
+          valid: false,
+          count: 1 + teammateTokens.length,
+          members: [],
+          teammates: teammateTokens,
+          error: "You are already included as the team lead.\n\nPlease select your teammates instead.",
+        };
+      }
     }
   }
 
-  // Total members = owner (1) + additional teammates
-  const totalCount = 1 + uniqueTeammates.length;
+  // 2. Deduplication Check: No duplicate teammates
+  const seenTeammates = new Set();
+  for (const token of teammateTokens) {
+    const clean = cleanMemberToken(token);
+    if (seenTeammates.has(clean)) {
+      return {
+        valid: false,
+        count: 1 + teammateTokens.length,
+        members: [],
+        teammates: teammateTokens,
+        error: `Duplicate teammate found: \`${token}\`.\n\nPlease list each teammate only once.`,
+      };
+    }
+    seenTeammates.add(clean);
+  }
 
+  // 3. Total Team Calculation
+  // The submitter is automatically 1 member of the team
+  const teammatesCount = teammateTokens.length;
+  const totalCount = 1 + teammatesCount;
+
+  const ownerTag = ownerUser?.username
+    ? `@${ownerUser.username}`
+    : (ownerUser?.id ? `<@${ownerUser.id}>` : "You");
+  const allMembers = [ownerTag, ...teammateTokens];
+
+  // 4. Track-specific validation
   if (normTrack === "Beginner") {
-    if (totalCount !== 1) {
+    if (totalCount === 1) {
       return {
-        valid: false,
-        count: totalCount,
-        members: [ownerTag, ...uniqueTeammates],
-        error: "Beginner is a **Solo track** (exactly 1 member). If you are building with teammates, please choose **Intermediate** (Duo) or **Advanced** (Squad).",
+        valid: true,
+        count: 1,
+        members: allMembers,
+        teammates: teammateTokens,
+        summary: "Beginner · Solo · 1 member",
       };
     }
-  } else if (normTrack === "Intermediate") {
-    if (totalCount !== 2) {
+    return {
+      valid: false,
+      count: totalCount,
+      members: allMembers,
+      teammates: teammateTokens,
+      error: "Beginner is a Solo track.\n\nYou cannot add teammates to a Beginner project.",
+    };
+  }
+
+  if (normTrack === "Intermediate") {
+    if (totalCount === 2) {
       return {
-        valid: false,
-        count: totalCount,
-        members: [ownerTag, ...uniqueTeammates],
-        error: `Intermediate is a **Duo track** (exactly 2 members). You currently have ${totalCount} member(s). Please list 1 teammate (e.g. \`@teammate\`).`,
+        valid: true,
+        count: 2,
+        members: allMembers,
+        teammates: teammateTokens,
+        summary: "Intermediate · Duo · 2 members",
       };
     }
-  } else if (normTrack === "Advanced") {
-    if (totalCount < 3 || totalCount > 4) {
+
+    if (teammatesCount === 0) {
       return {
         valid: false,
-        count: totalCount,
-        members: [ownerTag, ...uniqueTeammates],
-        error: `Advanced is a **Squad track** (3 to 4 members). You currently have ${totalCount} member(s). Please list 2 or 3 teammates.`,
+        count: 1,
+        members: allMembers,
+        teammates: teammateTokens,
+        error: "Intermediate teams require exactly 2 members total.\n\nPlease add 1 teammate.",
       };
     }
+
+    return {
+      valid: false,
+      count: totalCount,
+      members: allMembers,
+      teammates: teammateTokens,
+      error: `Intermediate teams require exactly 2 members total.\n\nYou currently have ${totalCount} members.`,
+    };
+  }
+
+  if (normTrack === "Advanced") {
+    if (totalCount >= 3 && totalCount <= 4) {
+      return {
+        valid: true,
+        count: totalCount,
+        members: allMembers,
+        teammates: teammateTokens,
+        summary: `Advanced · Squad · ${totalCount} members`,
+      };
+    }
+
+    if (teammatesCount === 0) {
+      return {
+        valid: false,
+        count: 1,
+        members: allMembers,
+        teammates: teammateTokens,
+        error: "Advanced teams must have 3–4 members total.\n\nYou are currently the only member.\n\nPlease add 2–3 teammates.",
+      };
+    }
+
+    if (teammatesCount === 1) {
+      return {
+        valid: false,
+        count: 2,
+        members: allMembers,
+        teammates: teammateTokens,
+        error: "Advanced teams must have 3–4 members total.\n\nYou currently have 2 members:\n• You\n• 1 teammate\n\nPlease add 1–2 more teammate(s).",
+      };
+    }
+
+    return {
+      valid: false,
+      count: totalCount,
+      members: allMembers,
+      teammates: teammateTokens,
+      error: `Advanced teams must have 3–4 members total.\n\nYou currently have ${totalCount} members.`,
+    };
   }
 
   return {
-    valid: true,
+    valid: false,
     count: totalCount,
-    members: [ownerTag, ...uniqueTeammates],
+    members: allMembers,
+    teammates: teammateTokens,
+    error: `Invalid configuration for track ${track}.`,
   };
 }
 
 /**
- * Generate next sequential PRD ID formatted like BL-PRD-001
+ * Generate next sequential PRD ID formatted like BL-PRD-001 based on highest existing ID
  * @returns {string}
  */
 function generateNextPrdId() {
-  const row = db.prepare("SELECT id FROM projects ORDER BY rowid DESC LIMIT 1").get();
-  if (!row || !row.id) {
-    return "BL-PRD-001";
+  const rows = db.prepare("SELECT id FROM projects").all();
+  let maxNum = 0;
+  for (const row of rows) {
+    if (!row.id) continue;
+    const match = row.id.match(/^BL-PRD-(\d+)$/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
   }
-
-  const match = row.id.match(/^BL-PRD-(\d+)$/i);
-  if (!match) {
-    return "BL-PRD-001";
-  }
-
-  const nextNum = parseInt(match[1], 10) + 1;
+  const nextNum = maxNum + 1;
   return `BL-PRD-${String(nextNum).padStart(3, "0")}`;
 }
 
@@ -425,6 +579,59 @@ function getPendingPrds() {
 }
 
 /**
+ * Checks if another project with the same problem statement, title, or owner is already approved.
+ * @param {string} prdId 
+ * @returns {{ isDuplicate: boolean, conflict?: object, reason?: string }}
+ */
+function checkDuplicateApprovedProject(prdId) {
+  const prd = getPrdById(prdId);
+  if (!prd) return { isDuplicate: false };
+
+  const approvedProjects = db.prepare("SELECT * FROM projects WHERE status = 'Approved'").all();
+
+  for (const approved of approvedProjects) {
+    if (approved.id.toUpperCase() === prd.id.toUpperCase()) continue;
+
+    // 1. Same Catalogue Problem Statement ID
+    if (
+      prd.problem_statement_id &&
+      approved.problem_statement_id &&
+      prd.problem_statement_id.trim().toUpperCase() === approved.problem_statement_id.trim().toUpperCase()
+    ) {
+      return {
+        isDuplicate: true,
+        conflict: approved,
+        reason: `Problem statement '${prd.problem_statement_id.trim().toUpperCase()}' is already approved for project '${approved.title}' (\`${approved.id}\`).`,
+      };
+    }
+
+    // 2. Same Project Title (case-insensitive)
+    if (
+      prd.title &&
+      approved.title &&
+      prd.title.trim().toLowerCase() === approved.title.trim().toLowerCase()
+    ) {
+      return {
+        isDuplicate: true,
+        conflict: approved,
+        reason: `A project with the title '${prd.title.trim()}' is already approved (\`${approved.id}\`).`,
+      };
+    }
+
+    // 3. Same Owner (User cannot have multiple approved projects)
+    if (prd.owner_id && approved.owner_id && prd.owner_id === approved.owner_id) {
+      return {
+        isDuplicate: true,
+        conflict: approved,
+        reason: `Owner <@${prd.owner_id}> already has an approved project ('${approved.title}' - \`${approved.id}\`).`,
+      };
+    }
+  }
+
+  return { isDuplicate: false };
+}
+
+/**
  * Update PRD status (Approve, Changes Requested, Reject)
  * @param {string} id 
  * @param {'Approved'|'Changes Requested'|'Rejected'|'Pending'} status 
@@ -434,6 +641,18 @@ function getPendingPrds() {
 function updatePrdStatus(id, status, reason = null) {
   const prd = getPrdById(id);
   if (!prd) return null;
+
+  if (status === "Approved") {
+    const dupCheck = checkDuplicateApprovedProject(id);
+    if (dupCheck.isDuplicate) {
+      return {
+        error: `Cannot approve duplicate project: ${dupCheck.reason}`,
+        duplicate: true,
+        conflict: dupCheck.conflict,
+        project: prd,
+      };
+    }
+  }
 
   const now = new Date().toISOString();
   let stage = prd.stage;
@@ -527,6 +746,9 @@ function setMentorStatus(prdId, mentorId, mentorStatus, note = null) {
 module.exports = {
   validateRepoUrl,
   validateTeamSize,
+  parseTeammateTokens,
+  cleanMemberToken,
+  isSubmitterToken,
   validatePdf,
   generateNextPrdId,
   submitPrd,
@@ -534,6 +756,7 @@ module.exports = {
   getPrdByOwnerId,
   getPendingPrds,
   updatePrdStatus,
+  checkDuplicateApprovedProject,
   assignMentor,
   setProjectRepo,
   setMentorStatus,

@@ -406,6 +406,15 @@ module.exports = {
           }
           const prdId = customId.replace("prd_quick_approve_", "");
           const updated = updatePrdStatus(prdId, "Approved", `Approved by <@${interaction.user.id}>`);
+          if (!updated) {
+            return interaction.reply({ content: "❌ Project not found.", ephemeral: true });
+          }
+          if (updated.error) {
+            return interaction.reply({
+              embeds: [createErrorEmbed("Cannot Approve Duplicate Project", updated.error)],
+              ephemeral: true,
+            });
+          }
           const embed = createSuccessEmbed(
             "Proposal Approved! 🎉",
             `Project **${updated.title}** (\`${updated.id}\`) is now approved for **DEVELOPMENT**.`

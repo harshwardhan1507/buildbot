@@ -16,6 +16,7 @@ const {
   getPrdById,
   getPrdByOwnerId,
   updatePrdStatus,
+  generateNextPrdId,
   assignMentor,
   setMentorStatus,
   validateTeamSize,
@@ -113,48 +114,125 @@ async function runTests() {
 
   // 2. PRD Team Size Validation
   console.log("\n--- [2] PRD Team Size Validation ---");
-  test("Beginner track accepts solo (1 member)", () => {
-    const res = validateTeamSize("Beginner", "Solo", { username: "alice" });
+  test("Beginner track: 0 teammates is valid (1 member total)", () => {
+    const res = validateTeamSize("Beginner", "Solo", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.count, 1);
+    assert.strictEqual(res.summary, "Beginner · Solo · 1 member");
+
+    const resEmpty = validateTeamSize("Beginner", "", { username: "alice", id: "1001" });
+    assert.strictEqual(resEmpty.valid, true);
+    assert.strictEqual(resEmpty.count, 1);
+  });
+
+  test("Beginner track: 1 teammate is rejected with clear message", () => {
+    const res = validateTeamSize("Beginner", "@bob", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, false);
+    assert.strictEqual(res.count, 2);
+    assert.ok(res.error.includes("Beginner is a Solo track"));
+    assert.ok(res.error.includes("You cannot add teammates to a Beginner project"));
+  });
+
+  test("Intermediate track: 0 teammates is rejected with clear request for 1 teammate", () => {
+    const res = validateTeamSize("Intermediate", "Solo", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, false);
+    assert.strictEqual(res.count, 1);
+    assert.ok(res.error.includes("Intermediate teams require exactly 2 members total"));
+    assert.ok(res.error.includes("Please add 1 teammate"));
+  });
+
+  test("Intermediate track: 1 teammate is valid (2 members total)", () => {
+    const res = validateTeamSize("Intermediate", "@partner", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.count, 2);
+    assert.strictEqual(res.summary, "Intermediate · Duo · 2 members");
+  });
+
+  test("Intermediate track: 2 teammates is rejected with clear member count", () => {
+    const res = validateTeamSize("Intermediate", "@bob, @charlie", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, false);
+    assert.strictEqual(res.count, 3);
+    assert.ok(res.error.includes("Intermediate teams require exactly 2 members total"));
+    assert.ok(res.error.includes("You currently have 3 members"));
+  });
+
+  test("Advanced track: 0 teammates is rejected asking for 2–3 teammates", () => {
+    const res = validateTeamSize("Advanced", "Solo", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, false);
+    assert.strictEqual(res.count, 1);
+    assert.ok(res.error.includes("Advanced teams must have 3–4 members total"));
+    assert.ok(res.error.includes("You are currently the only member"));
+    assert.ok(res.error.includes("Please add 2–3 teammates"));
+  });
+
+  test("Advanced track: 1 teammate is rejected distinguishing 2 members from needing 1–2 more teammates", () => {
+    const res = validateTeamSize("Advanced", "@bob", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, false);
+    assert.strictEqual(res.count, 2);
+    assert.ok(res.error.includes("Advanced teams must have 3–4 members total"));
+    assert.ok(res.error.includes("You currently have 2 members:"));
+    assert.ok(res.error.includes("• You"));
+    assert.ok(res.error.includes("• 1 teammate"));
+    assert.ok(res.error.includes("Please add 1–2 more teammate(s)"));
+  });
+
+  test("Advanced track: 2 teammates is valid (3 members total)", () => {
+    const res = validateTeamSize("Advanced", "@bob, @charlie", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.count, 3);
+    assert.strictEqual(res.summary, "Advanced · Squad · 3 members");
+  });
+
+  test("Advanced track: 3 teammates is valid (4 members total)", () => {
+    const res = validateTeamSize("Advanced", "@bob, @charlie, @dave", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.count, 4);
+    assert.strictEqual(res.summary, "Advanced · Squad · 4 members");
+  });
+
+  test("Advanced track: 4 teammates is rejected (5 members total)", () => {
+    const res = validateTeamSize("Advanced", "@b, @c, @d, @e", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, false);
+    assert.strictEqual(res.count, 5);
+    assert.ok(res.error.includes("Advanced teams must have 3–4 members total"));
+    assert.ok(res.error.includes("You currently have 5 members"));
+  });
+
+  test("Submitter duplicated in teammate list is rejected", () => {
+    const resByUsername = validateTeamSize("Advanced", "@alice, @bob, @charlie", { username: "alice", id: "1001" });
+    assert.strictEqual(resByUsername.valid, false);
+    assert.ok(resByUsername.error.includes("You are already included as the team lead"));
+    assert.ok(resByUsername.error.includes("Please select your teammates instead"));
+
+    const resById = validateTeamSize("Intermediate", "<@1001>", { username: "alice", id: "1001" });
+    assert.strictEqual(resById.valid, false);
+    assert.ok(resById.error.includes("You are already included as the team lead"));
+  });
+
+  test("Duplicate teammates listed are rejected", () => {
+    const res = validateTeamSize("Advanced", "@bob, @bob", { username: "alice", id: "1001" });
+    assert.strictEqual(res.valid, false);
+    assert.ok(res.error.includes("Duplicate teammate found"));
+    assert.ok(res.error.includes("Please list each teammate only once"));
+  });
+
+  test("Missing Discord user handles gracefully without crashing", () => {
+    const res = validateTeamSize("Beginner", "Solo", null);
     assert.strictEqual(res.valid, true);
     assert.strictEqual(res.count, 1);
   });
 
-  test("Beginner track rejects multiple members", () => {
-    const res = validateTeamSize("Beginner", "@bob", { username: "alice" });
-    assert.strictEqual(res.valid, false);
-    assert.ok(res.error.includes("Solo"));
-  });
+  test("PRD update changing team size prevents saving invalid team", () => {
+    // Valid initial team: Alice + Bob + Charlie = 3 members
+    const initialCheck = validateTeamSize("Advanced", "@bob, @charlie", { username: "alice", id: "1001" });
+    assert.strictEqual(initialCheck.valid, true);
+    assert.strictEqual(initialCheck.count, 3);
 
-  test("Intermediate track accepts duo (exactly 2 members)", () => {
-    const res = validateTeamSize("Intermediate", "@partner", { username: "alice" });
-    assert.strictEqual(res.valid, true);
-    assert.strictEqual(res.count, 2);
-  });
-
-  test("Intermediate track rejects solo (1 member) or squad (3+ members)", () => {
-    const resSolo = validateTeamSize("Intermediate", "Solo", { username: "alice" });
-    assert.strictEqual(resSolo.valid, false);
-
-    const resTrio = validateTeamSize("Intermediate", "@bob, @charlie", { username: "alice" });
-    assert.strictEqual(resTrio.valid, false);
-  });
-
-  test("Advanced track accepts squad (3 to 4 members)", () => {
-    const res3 = validateTeamSize("Advanced", "@bob, @charlie", { username: "alice" });
-    assert.strictEqual(res3.valid, true);
-    assert.strictEqual(res3.count, 3);
-
-    const res4 = validateTeamSize("Advanced", "@bob, @charlie, @dave", { username: "alice" });
-    assert.strictEqual(res4.valid, true);
-    assert.strictEqual(res4.count, 4);
-  });
-
-  test("Advanced track rejects invalid squad size (<3 or >4 members)", () => {
-    const res2 = validateTeamSize("Advanced", "@bob", { username: "alice" });
-    assert.strictEqual(res2.valid, false);
-
-    const res5 = validateTeamSize("Advanced", "@b, @c, @d, @e", { username: "alice" });
-    assert.strictEqual(res5.valid, false);
+    // Participant edits team to remove Charlie -> only Bob remains -> 2 members total
+    const updatedCheck = validateTeamSize("Advanced", "@bob", { username: "alice", id: "1001" });
+    assert.strictEqual(updatedCheck.valid, false);
+    assert.strictEqual(updatedCheck.count, 2);
+    assert.ok(updatedCheck.error.includes("Please add 1–2 more teammate(s)"));
   });
 
   // 3. GitHub Repository URL Validation
@@ -390,6 +468,73 @@ async function runTests() {
 
     const totalProjects = db.prepare("SELECT COUNT(*) as count FROM projects").get().count;
     assert.strictEqual(totalProjects, 1, "Must not create duplicate rows");
+  });
+
+  // 5.5 Duplicate Project Approval Protection & ID Assignment
+  console.log("\n--- [5.5] Duplicate Project Approval Protection & Project ID ---");
+  test("generateNextPrdId assigns sequential IDs based on highest existing number", () => {
+    const nextId = generateNextPrdId();
+    assert.strictEqual(nextId, "BL-PRD-002");
+  });
+
+  test("Approved project prevents duplicate approval for same problem statement or title", () => {
+    // 1. Approve initial project (BL-PRD-001, title: Campus Lost & Found 2.0, PS: B01)
+    const approved1 = updatePrdStatus(testProjectId, "Approved", "Initial approved proposal");
+    assert.strictEqual(approved1.status, "Approved");
+
+    // 2. Create second project with same catalogue problem statement B01 by bob
+    const prdBob = submitPrd({
+      title: "Another Lost & Found App",
+      track: "Intermediate",
+      owner_id: "user_bob",
+      team_members: "@charlie",
+      problem_statement_id: "B01",
+      problem_statement: "Different approach to lost and found.",
+      core_features: "Mobile app, NFC tracking",
+      tech_stack: "Flutter, Firebase",
+    });
+    assert.strictEqual(prdBob.problem_statement_id, "B01");
+
+    // Attempting to approve bob's project must fail because B01 is already approved
+    const approveBobResult = updatePrdStatus(prdBob.id, "Approved", "Attempting approval");
+    assert.ok(approveBobResult.error, "Must block approval of duplicate problem statement");
+    assert.ok(approveBobResult.error.includes("already approved"));
+    assert.ok(approveBobResult.error.includes("B01"));
+
+    // Verify Bob's project remained Pending in database
+    const bobInDb = getPrdById(prdBob.id);
+    assert.strictEqual(bobInDb.status, "Pending");
+
+    // 3. Create third project with duplicate title by dave
+    const prdDave = submitPrd({
+      title: "Campus Lost & Found 2.0",
+      track: "Beginner",
+      owner_id: "user_dave",
+      team_members: "Solo",
+      problem_statement: "Same title idea.",
+      core_features: "Web app",
+      tech_stack: "Vue.js",
+    });
+
+    const approveDaveResult = updatePrdStatus(prdDave.id, "Approved", "Attempting approval");
+    assert.ok(approveDaveResult.error, "Must block approval of duplicate title");
+    assert.ok(approveDaveResult.error.includes("already approved"));
+
+    // 4. Create fourth unique project by eve (unique PS and title) -> approval must succeed
+    const prdEve = submitPrd({
+      title: "SRM Campus Ride Sharing",
+      track: "Beginner",
+      owner_id: "user_eve",
+      problem_statement_id: "B02",
+      team_members: "Solo",
+      problem_statement: "Carpooling on campus.",
+      core_features: "Ride matching, Route planning",
+      tech_stack: "Node.js, PostgreSQL",
+    });
+
+    const approveEveResult = updatePrdStatus(prdEve.id, "Approved", "Unique idea approved");
+    assert.strictEqual(approveEveResult.status, "Approved");
+    assert.strictEqual(approveEveResult.error, undefined);
   });
 
   // 6. Support Tickets Lifecycle
