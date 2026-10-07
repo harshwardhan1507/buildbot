@@ -79,7 +79,14 @@ process.on("uncaughtException", (error) => {
 });
 
 async function startBot() {
-  const privilegedIntents = [
+  const allPrivilegedIntents = [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ];
+
+  const membersOnlyIntents = [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
@@ -90,25 +97,50 @@ async function startBot() {
     GatewayIntentBits.GuildMessages,
   ];
 
-  // Try privileged intents first; if disallowed by Discord developer portal, fallback to standard intents
-  activeClient = createBotClient(privilegedIntents);
-
+  // 1. Try full privileged intents (GuildMembers + MessageContent)
   try {
+    activeClient = createBotClient(allPrivilegedIntents);
     await activeClient.login(config.discord.token);
+    return;
   } catch (error) {
-    if (error.message && error.message.includes("disallowed intents")) {
-      console.warn(
-        "⚠️ Privileged 'GuildMembers' intent is not enabled in Discord Developer Portal.\n" +
-        "   Falling back to standard intents. (All commands, PRDs, database, and reminders will function;\n" +
-        "   to enable automatic member join welcome messages, toggle 'Server Members Intent' in Discord Portal)."
-      );
-      activeClient.destroy();
-      activeClient = createBotClient(standardIntents);
-      await activeClient.login(config.discord.token);
-    } else {
+    if (!error.message || !error.message.includes("disallowed intents")) {
       console.error("❌ Failed to log in to Discord:", error.message);
       process.exit(1);
     }
+  }
+
+  // 2. Try with GuildMembers without MessageContent
+  try {
+    console.warn(
+      "⚠️ Privileged 'MessageContent' intent not enabled in Discord Developer Portal.\n" +
+      "   Direct file uploads without bot mention may not be readable.\n" +
+      "   Toggle 'Message Content Intent' in Discord Portal to enable file uploads.\n" +
+      "   Trying with GuildMembers..."
+    );
+    if (activeClient) activeClient.destroy();
+    activeClient = createBotClient(membersOnlyIntents);
+    await activeClient.login(config.discord.token);
+    return;
+  } catch (error) {
+    if (!error.message || !error.message.includes("disallowed intents")) {
+      console.error("❌ Failed to log in to Discord:", error.message);
+      process.exit(1);
+    }
+  }
+
+  // 3. Fallback to standard intents
+  try {
+    console.warn(
+      "⚠️ Privileged 'GuildMembers' intent also not enabled in Discord Developer Portal.\n" +
+      "   Falling back to standard intents (Commands, PRDs, database, and reminders will function).\n" +
+      "   Toggle 'Server Members Intent' and 'Message Content Intent' in Discord Portal for full capabilities."
+    );
+    if (activeClient) activeClient.destroy();
+    activeClient = createBotClient(standardIntents);
+    await activeClient.login(config.discord.token);
+  } catch (error) {
+    console.error("❌ Failed to log in to Discord:", error.message);
+    process.exit(1);
   }
 }
 

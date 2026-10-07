@@ -1135,6 +1135,52 @@ async function runTests() {
     assert.ok(resp?.components?.length > 0);
   });
 
+  await asyncTest("Button prd_pdf_upload_file handles empty message with helpful MessageContent error and action buttons", async () => {
+    const inter = createMockInteraction({
+      type: "button",
+      customId: "prd_pdf_upload_file",
+    });
+    inter.channel = {
+      awaitMessages: async () => new Collection([
+        ["msg1", {
+          author: { id: testOwnerId },
+          attachments: new Collection(),
+          content: "",
+          delete: async () => {},
+        }],
+      ]),
+    };
+    await interactionCreate.execute(inter);
+    assert.strictEqual(inter._state.acknowledged, true);
+    const resp = inter._state.followUpPayload;
+    assert.ok(resp?.embeds?.[0]);
+    assert.ok(resp.embeds[0].data.title.includes("PROPOSAL PDF REQUIRED"));
+    assert.strictEqual(resp.embeds[0].data.title.includes("❌ ❌"), false);
+    assert.ok(resp.components?.length > 0);
+  });
+
+  await asyncTest("Button prd_pdf_upload_file accepts message with URL in text", async () => {
+    const inter = createMockInteraction({
+      type: "button",
+      customId: "prd_pdf_upload_file",
+    });
+    inter.channel = {
+      awaitMessages: async () => new Collection([
+        ["msg1", {
+          author: { id: testOwnerId },
+          attachments: new Collection(),
+          content: "Here is my proposal: https://drive.google.com/file/d/my-doc/view",
+          delete: async () => {},
+        }],
+      ]),
+    };
+    await interactionCreate.execute(inter);
+    assert.strictEqual(inter._state.acknowledged, true);
+    const resp = inter._state.followUpPayload;
+    assert.ok(resp?.embeds?.[0]);
+    assert.ok(resp.embeds[0].data.title.includes("PDF RECEIVED"));
+  });
+
   await asyncTest("Modal modal_prd_pdf_link validates PDF and compiles proposal preview", async () => {
     const inter = createMockInteraction({
       type: "modalSubmit",

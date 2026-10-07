@@ -215,7 +215,9 @@ function buildStep3PdfPrompt(draft) {
     "PROPOSAL PDF (STEP 3/3)",
     "Every BuildLab project proposal must include your completed **Project Proposal PDF**." +
       existingPdfText +
-      "\n\nPlease provide your completed proposal document using one of the options below:",
+      "\n\nPlease provide your completed proposal document using one of the options below:\n\n" +
+      "• **🔗 Enter PDF Link (Recommended):** Submit a Google Drive, Dropbox, or GitHub document link.\n" +
+      "• **📤 Upload PDF File:** Drop a `.pdf` file in this channel within 60 seconds.",
     COLORS.DEFAULT
   );
 
@@ -885,7 +887,7 @@ module.exports = {
 
     if (!validation.valid) {
       return interaction.reply({
-        embeds: [createErrorEmbed("❌ PROPOSAL PDF REQUIRED", validation.error)],
+        embeds: [createErrorEmbed("PROPOSAL PDF REQUIRED", validation.error)],
         ephemeral: true,
       });
     }
@@ -895,7 +897,7 @@ module.exports = {
     // Show Step 4 Final Summary
     const { embed, components } = buildFinalSummary(draft);
     const ackEmbed = createSuccessEmbed(
-      "✅ PDF RECEIVED",
+      "PDF RECEIVED",
       `Proposal PDF attached: [${validation.fileName}](${validation.url})\n\nPlease review your summary below and confirm submission:`
     );
 
@@ -919,7 +921,7 @@ module.exports = {
       "PROPOSAL PDF",
       "Please upload your completed BuildLab Project Proposal PDF.\n\n" +
         "**[ WAITING FOR PDF ]**\n" +
-        "Drop your completed `.pdf` file in this channel within 60 seconds.",
+        "Drop your completed `.pdf` file (or paste a Google Drive / document link) in this channel within 60 seconds.",
       COLORS.WARNING
     );
 
@@ -935,17 +937,49 @@ module.exports = {
       const msg = collected.first();
       const attachment = msg?.attachments?.first();
 
-      if (!attachment) {
+      // Check if user attached a file OR typed a link into the chat
+      let validation = null;
+      if (attachment) {
+        validation = validatePdf(attachment);
+      } else if (msg?.content) {
+        const urlMatch = msg.content.match(/https?:\/\/[^\s]+/i);
+        const candidateUrl = urlMatch ? urlMatch[0] : msg.content.trim();
+        validation = validatePdf(candidateUrl);
+      }
+
+      const retryActionRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("prd_pdf_enter_link")
+          .setLabel("Enter PDF Link")
+          .setEmoji("🔗")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId("prd_pdf_upload_file")
+          .setLabel("Try Upload Again")
+          .setEmoji("📤")
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      if (!validation) {
         return interaction.followUp({
-          embeds: [createErrorEmbed("❌ PROPOSAL PDF REQUIRED", "No file attachment found. Please upload a `.pdf` document.")],
+          embeds: [
+            createErrorEmbed(
+              "PROPOSAL PDF REQUIRED",
+              "No readable file attachment or link found.\n\n" +
+                "💡 **Did you drop a file?**\n" +
+                "If the bot does not receive the file attachment, Discord requires the **Message Content Intent** to be enabled for the bot in the Discord Developer Portal.\n\n" +
+                "**Quick alternative:** Click **'Enter PDF Link'** below to paste your Google Drive, GitHub, or direct document link!"
+            ),
+          ],
+          components: [retryActionRow],
           ephemeral: true,
         });
       }
 
-      const validation = validatePdf(attachment);
       if (!validation.valid) {
         return interaction.followUp({
-          embeds: [createErrorEmbed("❌ PROPOSAL PDF REQUIRED", validation.error)],
+          embeds: [createErrorEmbed("PROPOSAL PDF REQUIRED", validation.error)],
+          components: [retryActionRow],
           ephemeral: true,
         });
       }
@@ -957,7 +991,7 @@ module.exports = {
       } catch {}
 
       const ackEmbed = createSuccessEmbed(
-        "✅ PDF RECEIVED",
+        "PDF RECEIVED",
         `Received **${validation.fileName}**!\n\nPlease review your summary below and confirm submission:`
       );
 
