@@ -117,6 +117,47 @@ module.exports = {
           }
         }
 
+        // Staff PRD pending proposal select
+        if (customId === "prd_staff_select_pending") {
+          const selectedPrdId = interaction.values?.[0];
+          const prd = getPrdById(selectedPrdId);
+          if (prd) {
+            const prdCmd = interaction.client.commands.get("prd");
+            if (prdCmd && typeof prdCmd.buildPrdViewEmbed === "function") {
+              const embed = prdCmd.buildPrdViewEmbed(prd, true);
+              const actionRow = new ActionRowBuilder();
+              if (prd.proposal_pdf_url) {
+                actionRow.addComponents(
+                  new ButtonBuilder()
+                    .setLabel("View Proposal PDF")
+                    .setEmoji("📎")
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(prd.proposal_pdf_url)
+                );
+              }
+              actionRow.addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`prd_quick_approve_${prd.id}`)
+                  .setLabel("Approve")
+                  .setEmoji("✅")
+                  .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                  .setCustomId(`prd_quick_changes_${prd.id}`)
+                  .setLabel("Request Changes")
+                  .setEmoji("🟡")
+                  .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                  .setCustomId(`prd_quick_reject_${prd.id}`)
+                  .setLabel("Reject")
+                  .setEmoji("❌")
+                  .setStyle(ButtonStyle.Danger)
+              );
+              await interaction.reply({ embeds: [embed], components: [actionRow], ephemeral: true });
+              return;
+            }
+          }
+        }
+
         // Staff ticket action select
         if (customId === "select_ticket_action") {
           const ticketNum = parseInt(interaction.values?.[0], 10);
@@ -280,6 +321,47 @@ module.exports = {
             const existing = getPrdByOwnerId(interaction.user.id);
             const modal = prdCmd.createStep2Modal(existing);
             return interaction.showModal(modal);
+          }
+        }
+
+        // PRD: Open Step 3 PDF Prompt
+        if (customId === "prd_open_step3") {
+          const prdCmd = interaction.client.commands.get("prd");
+          if (prdCmd) {
+            const draft = prdCmd.draftCache?.get(interaction.user.id) || {};
+            const { embed, components } = prdCmd.buildStep3PdfPrompt(draft);
+            return interaction.reply({ embeds: [embed], components, ephemeral: true });
+          }
+        }
+
+        // PRD: Enter PDF Link (shows link modal)
+        if (customId === "prd_pdf_enter_link") {
+          const prdCmd = interaction.client.commands.get("prd");
+          if (prdCmd && typeof prdCmd.createPdfLinkModal === "function") {
+            const draft = prdCmd.draftCache?.get(interaction.user.id);
+            const modal = prdCmd.createPdfLinkModal(draft);
+            return interaction.showModal(modal);
+          }
+        }
+
+        // PRD: Upload PDF File directly
+        if (customId === "prd_pdf_upload_file") {
+          const prdCmd = interaction.client.commands.get("prd");
+          if (prdCmd && typeof prdCmd.handlePdfUploadButton === "function") {
+            return prdCmd.handlePdfUploadButton(interaction);
+          }
+        }
+
+        // PRD: Keep Existing PDF and proceed to final summary
+        if (customId === "prd_pdf_keep_existing") {
+          const prdCmd = interaction.client.commands.get("prd");
+          if (prdCmd) {
+            const draft = prdCmd.draftCache?.get(interaction.user.id);
+            if (!draft) {
+              return interaction.reply({ content: "⚠️ Session expired. Please run `/prd` to restart.", ephemeral: true });
+            }
+            const { embed, components } = prdCmd.buildFinalSummary(draft);
+            return interaction.reply({ embeds: [embed], components, ephemeral: true });
           }
         }
 
@@ -647,6 +729,16 @@ module.exports = {
           const prdCmd = interaction.client.commands.get("prd");
           if (prdCmd && typeof prdCmd.handleStep2Modal === "function") {
             await prdCmd.handleStep2Modal(interaction);
+            console.log(`[INTERACTION] acknowledged modal customId=${customId}`);
+          }
+          return;
+        }
+
+        // PRD Step 3: PDF Link Modal
+        if (customId === "modal_prd_pdf_link") {
+          const prdCmd = interaction.client.commands.get("prd");
+          if (prdCmd && typeof prdCmd.handlePdfLinkModal === "function") {
+            await prdCmd.handlePdfLinkModal(interaction);
             console.log(`[INTERACTION] acknowledged modal customId=${customId}`);
           }
           return;

@@ -40,6 +40,7 @@ const SCHEMA_SQL = `
     status_reason TEXT,
     mentor_id TEXT,
     repo_url TEXT,
+    proposal_pdf_url TEXT,
     stage TEXT DEFAULT 'PLANNING',
     mentor_status TEXT DEFAULT 'Not Assessed',
     mentor_status_note TEXT,
@@ -145,6 +146,7 @@ function applySchemaAndMigrations(dbInstance, isMemory = false) {
     { name: "learning_goals", type: "TEXT" },
     { name: "biggest_challenge", type: "TEXT" },
     { name: "final_outcome", type: "TEXT" },
+    { name: "proposal_pdf_url", type: "TEXT" },
   ];
 
   for (const col of newColumns) {

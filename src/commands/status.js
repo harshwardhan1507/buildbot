@@ -76,15 +76,18 @@ module.exports = {
         "Not Assessed": "⚪ Pending Checkpoint",
       };
 
+      const ghStatus = project.repo_url ? "Connected" : "Not connected";
+      const teamFormat = project.team_members || (project.track === "Beginner" ? "Solo" : "Team");
+      const stageName = project.stage === "DEVELOPMENT" ? "Build" : (project.stage === "PRD_REVIEW" ? "Proposal Review" : project.stage);
+
       const embed = createBaseEmbed(
-        "🚀 YOUR BUILDLAB STATUS",
-        `**Project:** ${project.title} (\`${project.id}\`)\n` +
-          `**Track:** **${project.track}** • **Format:** ${project.team_members || "Solo"}\n\n` +
-          `**PRD Proposal:** ${prdStatusIcons[project.status] || project.status}\n` +
-          `**Mentor Health:** ${healthIcons[project.mentor_status] || project.mentor_status}\n` +
-          `**Stage:** 🔨 **${project.stage}**\n\n` +
-          `📊 **Milestones Progress:**\n\`${progress.progressBar}\` (${progress.completed}/${progress.total} milestones completed)\n\n` +
-          `🐙 **Repository:** ${project.repo_url ? `[${project.repo_url}](${project.repo_url})` : "Not linked"}`,
+        "YOUR BUILDLAB STATUS",
+        `**PROJECT**\n${project.title}\n\n` +
+          `**TRACK**\n${project.track} · ${teamFormat}\n\n` +
+          `**PRD**\n${prdStatusIcons[project.status] || project.status}\n\n` +
+          `**GITHUB**\n${ghStatus}\n\n` +
+          `**PROGRESS**\n${progress.percentage}%\n\n` +
+          `**CURRENT STAGE**\n${stageName}`,
         COLORS.SUCCESS
       );
 

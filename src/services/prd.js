@@ -1,7 +1,100 @@
+const path = require("node:path");
 const db = require("./database");
 const { initializeProjectMilestones } = require("./milestones");
 const { connectProjectRepo } = require("./github");
 const config = require("../config/config");
+
+/**
+ * Validates proposal PDF file or web URL
+ * @param {string|object} pdfInput 
+ * @returns {{ valid: boolean, url?: string, fileName?: string, error?: string }}
+ */
+function validatePdf(pdfInput) {
+  if (!pdfInput) {
+    return {
+      valid: false,
+      error: "Completed Project Proposal PDF is required.",
+    };
+  }
+
+  // Handle Discord Attachment object
+  if (typeof pdfInput === "object" && pdfInput.url) {
+    const fileName = (pdfInput.name || "").toLowerCase();
+    const contentType = (pdfInput.contentType || "").toLowerCase();
+    const size = pdfInput.size || 0;
+
+    const isPdf = fileName.endsWith(".pdf") || contentType.includes("application/pdf");
+    if (!isPdf) {
+      return {
+        valid: false,
+        error: "Uploaded file must be a PDF document (`.pdf`). Please upload a valid Project Proposal PDF.",
+      };
+    }
+
+    if (size > 25 * 1024 * 1024) {
+      return {
+        valid: false,
+        error: "PDF file size exceeds 25MB limit. Please upload a compressed or smaller PDF.",
+      };
+    }
+
+    return {
+      valid: true,
+      url: pdfInput.url,
+      fileName: pdfInput.name || "proposal.pdf",
+    };
+  }
+
+  if (typeof pdfInput === "string") {
+    const trimmed = pdfInput.trim();
+    if (!trimmed) {
+      return {
+        valid: false,
+        error: "Completed Project Proposal PDF is required.",
+      };
+    }
+
+    const isUrl = /^https?:\/\//i.test(trimmed);
+    const isFilePath = trimmed.toLowerCase().endsWith(".pdf");
+
+    if (!isUrl && !isFilePath) {
+      return {
+        valid: false,
+        error: "Please provide a valid web URL or file path to your Proposal PDF (e.g. Google Drive link or direct .pdf link).",
+      };
+    }
+
+    const lower = trimmed.toLowerCase();
+    const isPdfExt = lower.includes(".pdf");
+    const isDocHost =
+      lower.includes("drive.google.com") ||
+      lower.includes("docs.google.com") ||
+      lower.includes("dropbox.com") ||
+      lower.includes("github.com") ||
+      lower.includes("notion.site") ||
+      lower.includes("notion.so") ||
+      lower.includes("onedrive.live.com") ||
+      lower.includes("1drv.ms");
+
+    if (!isPdfExt && !isDocHost) {
+      return {
+        valid: false,
+        error: "URL must link to a `.pdf` document or a valid document share link (e.g. Google Drive, Dropbox, or GitHub).",
+      };
+    }
+
+    return {
+      valid: true,
+      url: trimmed,
+      fileName: path.basename(trimmed.split("?")[0]) || "proposal.pdf",
+    };
+  }
+
+  return {
+    valid: false,
+    error: "Invalid proposal PDF format provided.",
+  };
+}
 
 /**
  * Validates and normalizes GitHub repository URL or slug
@@ -203,6 +296,7 @@ function submitPrd(prdData) {
         success_criteria = ?,
         risks_dependencies = ?,
         repo_url = COALESCE(?, repo_url),
+        proposal_pdf_url = COALESCE(?, proposal_pdf_url),
         status = 'Pending',
         status_reason = NULL,
         stage = 'PRD_REVIEW',
@@ -230,6 +324,7 @@ function submitPrd(prdData) {
       prdData.success_criteria || "",
       prdData.risks_dependencies || "",
       prdData.repo_url || null,
+      prdData.proposal_pdf_url || null,
       now,
       existing.id
     );
@@ -253,12 +348,12 @@ function submitPrd(prdData) {
       id, title, track, owner_id, team_name, project_type, problem_statement_id,
       team_members, problem_statement, solution, target_users, core_features, stretch_features,
       tech_stack, learning_goals, biggest_challenge, final_outcome, milestones, success_criteria, risks_dependencies,
-      repo_url, status, stage, mentor_status, created_at, updated_at
+      repo_url, proposal_pdf_url, status, stage, mentor_status, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?,
-      ?, 'Pending', 'PRD_REVIEW', 'Not Assessed', ?, ?
+      ?, ?, 'Pending', 'PRD_REVIEW', 'Not Assessed', ?, ?
     )
   `);
 
@@ -284,6 +379,7 @@ function submitPrd(prdData) {
     prdData.success_criteria || "",
     prdData.risks_dependencies || "",
     prdData.repo_url || null,
+    prdData.proposal_pdf_url || null,
     now,
     now
   );
@@ -431,6 +527,7 @@ function setMentorStatus(prdId, mentorId, mentorStatus, note = null) {
 module.exports = {
   validateRepoUrl,
   validateTeamSize,
+  validatePdf,
   generateNextPrdId,
   submitPrd,
   getPrdById,

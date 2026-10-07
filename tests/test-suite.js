@@ -20,6 +20,7 @@ const {
   setMentorStatus,
   validateTeamSize,
   validateRepoUrl,
+  validatePdf,
 } = require("../src/services/prd");
 const {
   initializeProjectMilestones,
@@ -176,6 +177,49 @@ async function runTests() {
     assert.strictEqual(validateRepoUrl("just_a_string").valid, false);
   });
 
+  // 3.5 Proposal PDF Validation
+  console.log("\n--- [3.5] Project Proposal PDF Validation ---");
+  test("Valid direct .pdf link is accepted", () => {
+    const res = validatePdf("https://example.com/proposals/BL-PRD-001.pdf");
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.url, "https://example.com/proposals/BL-PRD-001.pdf");
+  });
+
+  test("Valid Google Drive or GitHub document link is accepted", () => {
+    const driveRes = validatePdf("https://drive.google.com/file/d/1a2b3c4d5e/view?usp=sharing");
+    assert.strictEqual(driveRes.valid, true);
+
+    const ghRes = validatePdf("https://github.com/techspace-srm/buildlab-bot/blob/main/proposal.pdf");
+    assert.strictEqual(ghRes.valid, true);
+  });
+
+  test("Valid Discord attachment object with .pdf is accepted", () => {
+    const res = validatePdf({
+      name: "final_project_proposal.pdf",
+      contentType: "application/pdf",
+      size: 1024 * 500, // 500 KB
+      url: "https://cdn.discordapp.com/attachments/123/456/final_project_proposal.pdf",
+    });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.url, "https://cdn.discordapp.com/attachments/123/456/final_project_proposal.pdf");
+  });
+
+  test("Invalid non-PDF or arbitrary file type is rejected", () => {
+    const res1 = validatePdf("https://example.com/image.png");
+    assert.strictEqual(res1.valid, false);
+
+    const res2 = validatePdf({
+      name: "malicious.exe",
+      contentType: "application/x-msdownload",
+      size: 1024,
+      url: "https://cdn.discordapp.com/attachments/123/malicious.exe",
+    });
+    assert.strictEqual(res2.valid, false);
+
+    const res3 = validatePdf("");
+    assert.strictEqual(res3.valid, false);
+  });
+
   // 4. Automatic Track Role Assignment & Safe Conflict Handling
   console.log("\n--- [4] Automatic Track Role Assignment & Conflict Handling ---");
 
@@ -299,7 +343,7 @@ async function runTests() {
   const testOwnerId = "user_participant_alice";
   let testProjectId = null;
 
-  test("submitPrd creates project proposal and links GitHub repository automatically", () => {
+  test("submitPrd creates project proposal with proposal PDF and links GitHub repository", () => {
     const prd = submitPrd({
       title: "Campus Lost & Found",
       track: "Beginner",
@@ -313,6 +357,7 @@ async function runTests() {
       core_features: "Item catalog, Search & filters, Claim verification",
       tech_stack: "React, Node.js, SQLite",
       repo_url: "https://github.com/alice/campus-lost-found",
+      proposal_pdf_url: "https://drive.google.com/file/d/test123_proposal/view",
     });
 
     assert.ok(prd);
@@ -320,12 +365,13 @@ async function runTests() {
     assert.strictEqual(prd.title, "Campus Lost & Found");
     assert.strictEqual(prd.track, "Beginner");
     assert.strictEqual(prd.repo_url, "https://github.com/alice/campus-lost-found");
+    assert.strictEqual(prd.proposal_pdf_url, "https://drive.google.com/file/d/test123_proposal/view");
     assert.strictEqual(prd.status, "Pending");
     assert.strictEqual(prd.problem_statement_id, "B01");
     testProjectId = prd.id;
   });
 
-  test("Submitting PRD again updates existing project without creating duplicates", () => {
+  test("Submitting PRD again updates existing project preserving proposal PDF without creating duplicates", () => {
     const updated = submitPrd({
       title: "Campus Lost & Found 2.0",
       track: "Beginner",
@@ -339,6 +385,7 @@ async function runTests() {
 
     assert.strictEqual(updated.id, testProjectId, "Must keep existing project ID");
     assert.strictEqual(updated.title, "Campus Lost & Found 2.0");
+    assert.strictEqual(updated.proposal_pdf_url, "https://drive.google.com/file/d/test123_proposal/view", "Must preserve PDF if not modified");
 
     const totalProjects = db.prepare("SELECT COUNT(*) as count FROM projects").get().count;
     assert.strictEqual(totalProjects, 1, "Must not create duplicate rows");
@@ -548,7 +595,7 @@ async function runTests() {
     assert.strictEqual(inter._state.acknowledged, true);
     const resp = inter.getResponse();
     assert.ok(resp?.embeds?.[0]);
-    assert.ok(resp.embeds[0].data.title.includes("SETUP"));
+    assert.ok(resp.embeds[0].data.title.includes("PROJECT"));
   });
 
   await asyncTest("/start displays welcome onboarding panel when user has no PRD", async () => {
@@ -741,7 +788,7 @@ async function runTests() {
     assert.ok(resp?.components?.length > 0);
   });
 
-  await asyncTest("Modal modal_prd_step2 compiles proposal preview", async () => {
+  await asyncTest("Modal modal_prd_step2 prompts Step 3 Proposal PDF", async () => {
     const inter = createMockInteraction({
       type: "modalSubmit",
       customId: "modal_prd_step2",
@@ -757,10 +804,27 @@ async function runTests() {
     assert.strictEqual(inter._state.acknowledged, true);
     const resp = inter.getResponse();
     assert.ok(resp?.embeds?.[0]);
-    assert.ok(resp.embeds[0].data.title.includes("PREVIEW"));
+    assert.ok(resp.embeds[0].data.title.includes("PROPOSAL PDF"));
+    assert.ok(resp?.components?.length > 0);
   });
 
-  await asyncTest("Button prd_confirm_submit saves proposal and assigns track role", async () => {
+  await asyncTest("Modal modal_prd_pdf_link validates PDF and compiles proposal preview", async () => {
+    const inter = createMockInteraction({
+      type: "modalSubmit",
+      customId: "modal_prd_pdf_link",
+      fieldValues: {
+        prd_pdf_url: "https://drive.google.com/file/d/carpool_proposal/view",
+      },
+    });
+    await interactionCreate.execute(inter);
+    assert.strictEqual(inter._state.acknowledged, true);
+    const resp = inter.getResponse();
+    assert.ok(resp?.embeds?.[0]);
+    assert.ok(resp.embeds[0].data.title.includes("PDF RECEIVED"));
+    assert.ok(resp.embeds[1].data.title.includes("PROJECT PROPOSAL"));
+  });
+
+  await asyncTest("Button prd_confirm_submit saves proposal with PDF and assigns track role", async () => {
     const inter = createMockInteraction({
       type: "button",
       customId: "prd_confirm_submit",
@@ -770,6 +834,19 @@ async function runTests() {
     const resp = inter.getResponse();
     assert.ok(resp?.embeds?.[0]);
     assert.ok(resp.embeds[0].data.title.includes("REGISTERED"));
+  });
+
+  await asyncTest("Zero-role onboarding: brand new participant without track role can use /start, /prd, /help", async () => {
+    const brandNewUserInter = createMockInteraction({
+      commandName: "prd",
+      user: { id: "brand_new_student", username: "Freshman" },
+      memberRoles: [], // NO roles at all
+    });
+    await interactionCreate.execute(brandNewUserInter);
+    assert.strictEqual(brandNewUserInter._state.acknowledged, true);
+    const resp = brandNewUserInter.getResponse();
+    assert.ok(resp?.embeds?.[0]);
+    assert.strictEqual(resp.embeds[0].data.title, "PROJECT PROPOSAL");
   });
 
   await asyncTest("Button help_debugging renders guide and ticket shortcut", async () => {
