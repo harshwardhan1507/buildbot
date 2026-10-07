@@ -72,8 +72,8 @@ function createStep1Modal(existing = null) {
 
   const teamInput = new TextInputBuilder()
     .setCustomId("prd_team")
-    .setLabel("Teammates (Solo or @teammate mentions)")
-    .setPlaceholder("e.g. Solo (for Beginner), @partner, @b, @c")
+    .setLabel("Teammates (Do NOT include yourself)")
+    .setPlaceholder("Beginner: Solo | Intermediate: @partner | Advanced: @b, @c")
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMaxLength(150)
