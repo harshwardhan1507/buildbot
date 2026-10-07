@@ -65,6 +65,7 @@ const {
   validateGuildTrackRoles,
 } = require("../src/services/roles");
 const interactionCreate = require("../src/events/interactionCreate");
+const { timeline, getCurrentPhase, getTimeRemaining, ANNOUNCEMENTS } = require("../src/config/events");
 
 let passed = 0;
 let failed = 0;
@@ -445,6 +446,103 @@ async function runTests() {
   console.log(`  PASS: Verified 7 retired commands were removed from registry`);
   passed += 2;
 
+  // 7.5 BuildLab '26 Timeline & Phase Detection Logic
+  console.log("\n--- [7.5] BuildLab '26 Timeline & Phase Detection Logic ---");
+
+  test("Timeline has exactly 4 active milestones and zero retired dates", () => {
+    assert.strictEqual(timeline.length, 4, "Timeline must contain exactly 4 milestones");
+    const keys = timeline.map((m) => m.key);
+    assert.ok(keys.includes("kickoff_registration"), "Missing kickoff_registration");
+    assert.ok(keys.includes("registration_prd_close"), "Missing registration_prd_close");
+    assert.ok(keys.includes("midpoint_checkin"), "Missing midpoint_checkin");
+    assert.ok(keys.includes("final_submission"), "Missing final_submission");
+
+    const retiredKeys = ["track_selection", "prd_deadline", "mid_review", "demo_day", "closing_results"];
+    for (const retired of retiredKeys) {
+      assert.strictEqual(keys.includes(retired), false, `Retired milestone key ${retired} must not exist`);
+    }
+  });
+
+  test("06 Oct: Kickoff & Registration Opens -> REGISTRATION + PRD", () => {
+    const phase = getCurrentPhase("2026-10-06T10:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "REGISTRATION_PRD");
+    assert.strictEqual(phase.currentPhase, "REGISTRATION + PRD");
+    assert.strictEqual(phase.nextLabel, "NEXT DEADLINE");
+    assert.strictEqual(phase.nextValue, "08 OCT · 11:59 PM");
+  });
+
+  test("07 Oct: Mid Registration Window -> REGISTRATION + PRD", () => {
+    const phase = getCurrentPhase("2026-10-07T14:30:00+05:30");
+    assert.strictEqual(phase.phaseKey, "REGISTRATION_PRD");
+    assert.strictEqual(phase.currentPhase, "REGISTRATION + PRD");
+    assert.strictEqual(phase.nextLabel, "NEXT DEADLINE");
+    assert.strictEqual(phase.nextValue, "08 OCT · 11:59 PM");
+  });
+
+  test("08 Oct: Registration & PRD Deadline Day -> REGISTRATION + PRD", () => {
+    const phase = getCurrentPhase("2026-10-08T23:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "REGISTRATION_PRD");
+    assert.strictEqual(phase.currentPhase, "REGISTRATION + PRD");
+    assert.strictEqual(phase.nextLabel, "NEXT DEADLINE");
+    assert.strictEqual(phase.nextValue, "08 OCT · 11:59 PM");
+  });
+
+  test("09 Oct: Start of Build Phase I -> BUILD PHASE I", () => {
+    const phase = getCurrentPhase("2026-10-09T09:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "BUILD_PHASE_1");
+    assert.strictEqual(phase.currentPhase, "BUILD PHASE I");
+    assert.strictEqual(phase.nextLabel, "NEXT CHECKPOINT");
+    assert.strictEqual(phase.nextValue, "16 OCT · MIDPOINT CHECK-IN");
+  });
+
+  test("15 Oct: End of Build Phase I -> BUILD PHASE I", () => {
+    const phase = getCurrentPhase("2026-10-15T20:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "BUILD_PHASE_1");
+    assert.strictEqual(phase.currentPhase, "BUILD PHASE I");
+    assert.strictEqual(phase.nextLabel, "NEXT CHECKPOINT");
+    assert.strictEqual(phase.nextValue, "16 OCT · MIDPOINT CHECK-IN");
+  });
+
+  test("16 Oct: Midpoint Check-In Day -> MIDPOINT CHECK-IN", () => {
+    const phase = getCurrentPhase("2026-10-16T15:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "MIDPOINT_CHECKIN");
+    assert.strictEqual(phase.currentPhase, "MIDPOINT CHECK-IN");
+    assert.strictEqual(phase.nextLabel, "FINAL SUBMISSION");
+    assert.strictEqual(phase.nextValue, "23 OCT");
+  });
+
+  test("17 Oct: Start of Final Build + Polish -> FINAL BUILD + POLISH", () => {
+    const phase = getCurrentPhase("2026-10-17T11:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "FINAL_BUILD_POLISH");
+    assert.strictEqual(phase.currentPhase, "FINAL BUILD + POLISH");
+    assert.strictEqual(phase.nextLabel, "FINAL SUBMISSION");
+    assert.strictEqual(phase.nextValue, "23 OCT");
+  });
+
+  test("22 Oct: Day Before Final Submission -> FINAL BUILD + POLISH", () => {
+    const phase = getCurrentPhase("2026-10-22T21:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "FINAL_BUILD_POLISH");
+    assert.strictEqual(phase.currentPhase, "FINAL BUILD + POLISH");
+    assert.strictEqual(phase.nextLabel, "FINAL SUBMISSION");
+    assert.strictEqual(phase.nextValue, "23 OCT");
+  });
+
+  test("23 Oct: Final Submission Day -> FINAL SUBMISSION / PROGRAM CONCLUSION", () => {
+    const phase = getCurrentPhase("2026-10-23T18:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "FINAL_SUBMISSION");
+    assert.strictEqual(phase.currentPhase, "FINAL SUBMISSION / PROGRAM CONCLUSION");
+    assert.strictEqual(phase.nextLabel, "FINAL SUBMISSION");
+    assert.strictEqual(phase.nextValue, "TODAY · 11:59 PM");
+  });
+
+  test("24 Oct onward: Program Concluded -> PROGRAM COMPLETED", () => {
+    const phase = getCurrentPhase("2026-10-24T10:00:00+05:30");
+    assert.strictEqual(phase.phaseKey, "COMPLETED");
+    assert.strictEqual(phase.currentPhase, "PROGRAM COMPLETED");
+    assert.strictEqual(phase.nextLabel, "PROGRAM");
+    assert.strictEqual(phase.nextValue, "COMPLETED");
+  });
+
   // 8. Direct Command Execution
   console.log("\n--- [8] Direct Command Execution ---");
 
@@ -754,6 +852,36 @@ async function runTests() {
     assert.strictEqual(nonAdminInter._state.acknowledged, true);
     const nonAdminResp = nonAdminInter.getResponse();
     assert.ok(nonAdminResp?.content?.includes("TechSpace Admin"));
+  });
+
+  const { checkAndSendReminders } = require("../src/services/reminders");
+  await asyncTest("Reminders trigger correctly for registration deadline milestone and use new copy", async () => {
+    const sentMessages = [];
+    const mockChannel = {
+      name: "announcements",
+      isTextBased: () => true,
+      async send(payload) {
+        sentMessages.push(payload);
+      },
+    };
+    const mockClientWithAnnounce = {
+      guilds: {
+        async fetch() {
+          return {
+            channels: {
+              cache: new Collection([["chan_announcements", mockChannel]]),
+            },
+          };
+        },
+      },
+    };
+
+    const sent = await checkAndSendReminders(mockClientWithAnnounce, true);
+    assert.ok(Array.isArray(sent), "checkAndSendReminders must return an array");
+    assert.ok(sent.some((s) => s.includes("Registration + PRD Close")), "Must send Registration + PRD reminder");
+    assert.ok(sentMessages.length > 0, "Must have posted an embed to announcements channel");
+    const firstEmbed = sentMessages[0].embeds[0];
+    assert.ok(firstEmbed.data.title.includes("REGISTRATION"), "Must use Registration announcement copy");
   });
 
   // 9. Interactive Buttons & Modal Dispatch

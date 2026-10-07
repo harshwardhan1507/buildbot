@@ -54,7 +54,7 @@ module.exports = {
       const enabled = areRemindersEnabled();
       const embed = createBaseEmbed(
         "⏰ Reminder System Status",
-        `Automated reminders are currently: **${enabled ? "🟢 Enabled" : "🔴 Disabled"}**\nInterval: **Every 30 minutes**\nMilestones: **3 days, 1 day, and morning of deadline**.`,
+        `Automated reminders are currently: **${enabled ? "🟢 Enabled" : "🔴 Disabled"}**\nInterval: **Every 30 minutes**\nMilestones: **Before deadline (1 day) & deadline day (08 Oct & 23 Oct), plus 16 Oct Midpoint Check-In**.`,
         enabled ? COLORS.SUCCESS : COLORS.WARNING
       );
       if (interaction.deferred) return interaction.editReply({ embeds: [embed] });

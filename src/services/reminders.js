@@ -1,4 +1,4 @@
-const { timeline, getTimeRemaining } = require("../config/events");
+const { timeline, getTimeRemaining, ANNOUNCEMENTS } = require("../config/events");
 const db = require("./database");
 const config = require("../config/config");
 const { createBaseEmbed, COLORS } = require("../utils/embeds");
@@ -25,6 +25,12 @@ function setRemindersEnabled(enabled) {
 
 /**
  * Checks all milestones and sends any due reminders
+ * Key milestones:
+ * - REGISTRATION + PRD: 1 day before (07 Oct), day of deadline (08 Oct)
+ * - MIDPOINT CHECK-IN: day of checkpoint (16 Oct)
+ * - FINAL SUBMISSION: 1 day before (22 Oct), day of final submission (23 Oct)
+ * No daily reminders during build phases.
+ *
  * @param {import("discord.js").Client} client 
  * @param {boolean} [forceTest=false] 
  * @returns {Promise<Array<string>>} List of sent notifications
@@ -50,17 +56,38 @@ async function checkAndSendReminders(client, forceTest = false) {
       if (remaining.past) continue;
 
       let milestone = null;
-      let alertMessage = "";
+      let title = "";
+      let description = "";
+      let color = COLORS.WARNING;
 
-      if (remaining.days === 3) {
-        milestone = "3_days";
-        alertMessage = `📦 **${event.title}** is in **3 days**!`;
-      } else if (remaining.days === 1) {
-        milestone = "1_day";
-        alertMessage = `⏰ **${event.title}** is **tomorrow**!`;
-      } else if (remaining.days === 0 && remaining.hours > 0) {
-        milestone = "today";
-        alertMessage = `🚀 **${event.title}** is **today** (${remaining.formatted})!`;
+      if (event.key === "registration_prd_close") {
+        if (remaining.days === 1) {
+          milestone = "1_day_before";
+          title = ANNOUNCEMENTS.REGISTRATION_REMINDER_1DAY.title;
+          description = ANNOUNCEMENTS.REGISTRATION_REMINDER_1DAY.description;
+        } else if (remaining.days === 0) {
+          milestone = "deadline_day";
+          title = ANNOUNCEMENTS.REGISTRATION_CLOSING.title;
+          description = ANNOUNCEMENTS.REGISTRATION_CLOSING.description;
+        }
+      } else if (event.key === "midpoint_checkin") {
+        if (remaining.days === 0) {
+          milestone = "midpoint_day";
+          title = ANNOUNCEMENTS.MIDPOINT.title;
+          description = ANNOUNCEMENTS.MIDPOINT.description;
+          color = COLORS.INFO;
+        }
+      } else if (event.key === "final_submission") {
+        if (remaining.days === 1) {
+          milestone = "1_day_before";
+          title = ANNOUNCEMENTS.FINAL_SUBMISSION_1DAY.title;
+          description = ANNOUNCEMENTS.FINAL_SUBMISSION_1DAY.description;
+        } else if (remaining.days === 0) {
+          milestone = "final_day";
+          title = ANNOUNCEMENTS.FINAL_SUBMISSION.title;
+          description = ANNOUNCEMENTS.FINAL_SUBMISSION.description;
+          color = COLORS.SUCCESS;
+        }
       }
 
       if (milestone) {
@@ -70,12 +97,10 @@ async function checkAndSendReminders(client, forceTest = false) {
         ).get(event.key, milestone);
 
         if (!alreadySent || forceTest) {
-          const embed = createBaseEmbed("⏰ BuildLab Deadline Reminder", "", COLORS.WARNING)
-            .setDescription(`${alertMessage}\n\n**Description:** ${event.description}`)
-            .addFields(
-              { name: "Milestone", value: event.title, inline: true },
-              { name: "Time Remaining", value: remaining.formatted, inline: true }
-            );
+          const embed = createBaseEmbed(title, description, color).addFields(
+            { name: "Target Date", value: "2026-10-" + event.date.slice(8, 10) + " (IST)", inline: true },
+            { name: "Time Remaining", value: remaining.formatted, inline: true }
+          );
 
           await channel.send({ embeds: [embed] });
 

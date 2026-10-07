@@ -4,7 +4,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
 } = require("discord.js");
-const { timeline, getTimeRemaining } = require("../config/events");
+const { timeline, getTimeRemaining, getCurrentPhase } = require("../config/events");
 const { getDetailedOverview } = require("../services/teams");
 const { getPrdByOwnerId } = require("../services/prd");
 const { calculateProjectProgress } = require("../services/milestones");
@@ -28,10 +28,18 @@ module.exports = {
 
     const member = interaction.member;
     const isStaff = isBuildLabTeam(member);
+    const phase = getCurrentPhase();
 
-    // If participant, show their personalized, simplified project status
+    // If participant, show their personalized, phase-oriented project status
     if (!isStaff) {
       const project = getPrdByOwnerId(interaction.user.id);
+
+      const phaseFields = [
+        { name: "CURRENT PHASE", value: `**${phase.currentPhase}**`, inline: true },
+      ];
+      if (phase.nextLabel && phase.nextValue) {
+        phaseFields.push({ name: phase.nextLabel, value: `**${phase.nextValue}**`, inline: true });
+      }
 
       if (!project) {
         const embed = createBaseEmbed(
@@ -42,7 +50,7 @@ module.exports = {
             "2. Select your track (**Beginner**, **Intermediate**, or **Advanced**).\n" +
             "3. Your track role will be assigned automatically!",
           COLORS.DEFAULT
-        );
+        ).addFields(phaseFields);
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -69,13 +77,6 @@ module.exports = {
         Rejected: "🔴 Rejected",
       };
 
-      const healthIcons = {
-        "On Track": "🟢 On Track",
-        "Needs Attention": "🟡 Needs Attention",
-        "At Risk": "🔴 At Risk",
-        "Not Assessed": "⚪ Pending Checkpoint",
-      };
-
       const ghStatus = project.repo_url ? "Connected" : "Not connected";
       const teamFormat = project.team_members || (project.track === "Beginner" ? "Solo" : "Team");
       const stageName = project.stage === "DEVELOPMENT" ? "Build" : (project.stage === "PRD_REVIEW" ? "Proposal Review" : project.stage);
@@ -89,7 +90,7 @@ module.exports = {
           `**PROGRESS**\n${progress.percentage}%\n\n` +
           `**CURRENT STAGE**\n${stageName}`,
         COLORS.SUCCESS
-      );
+      ).addFields(phaseFields);
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -153,6 +154,8 @@ module.exports = {
       {
         name: "PROGRAM STATUS",
         value:
+          `📌 **Current Phase:** ${phase.currentPhase}` +
+          (phase.nextLabel ? ` | **${phase.nextLabel}:** ${phase.nextValue}\n` : "\n") +
           `👥 **Teams:** ${overview.totalTeams}\n` +
           `👤 **Participants:** ${userCount}\n` +
           `📋 **PRDs Approved:** ${overview.prdsApproved} | **Pending:** ${pendingPrds}`,
@@ -187,12 +190,11 @@ module.exports = {
         const remaining = getTimeRemaining(e.date);
         return remaining.past ? null : `• **${e.title}:** ⏰ ${remaining.formatted}`;
       })
-      .filter(Boolean)
-      .slice(0, 3);
+      .filter(Boolean);
 
     if (countdowns.length > 0) {
       embed.addFields({
-        name: "UPCOMING DEADLINES",
+        name: "UPCOMING DEADLINES & MILESTONES",
         value: countdowns.join("\n"),
         inline: false,
       });
