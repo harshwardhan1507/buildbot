@@ -1128,7 +1128,7 @@ module.exports = {
       if (interaction.member) {
         const roleResult = await assignTrackRole(interaction.member, draft.track);
         if (roleResult.success && roleResult.assignedRole) {
-          roleText = `@${roleResult.assignedRole.name}`;
+          roleText = `<@${roleResult.assignedRole.id}>`;
         } else {
           console.error(`[ROLE ASSIGNMENT FAILURE] user=${interaction.user.id} track=${draft.track}: ${roleResult.message}`);
           roleWarning = "\n\n⚠️ **TRACK ROLE COULD NOT BE ASSIGNED AUTOMATICALLY.**\nPlease contact the BuildLab Team.";
