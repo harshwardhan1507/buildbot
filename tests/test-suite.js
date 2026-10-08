@@ -547,7 +547,7 @@ async function runTests() {
     assert.strictEqual(nextId, "BL-PRD-002");
   });
 
-  test("Approved project prevents duplicate approval for same stack on duplicate PS or duplicate title", () => {
+  test("Approved project ALLOWS duplicate approval for same stack on duplicate PS or duplicate title", () => {
     // 1. Approve initial project (BL-PRD-001, title: Campus Lost & Found 2.0, PS: B01)
     const approved1 = updatePrdStatus(testProjectId, "Approved", "Initial approved proposal");
     assert.strictEqual(approved1.status, "Approved");
@@ -563,19 +563,13 @@ async function runTests() {
       problem_statement: "Different approach to lost and found.",
       core_features: "Mobile app, NFC tracking",
       tech_stack: "React, Firebase", // Primary stack: React (collides with testProjectId!)
+      repo_url: "https://github.com/bob/lost-found",
     });
     assert.strictEqual(prdBob.problem_statement_id, "B01");
 
-    // Attempting to approve bob's project must fail because React is already approved for B01
+    // Attempting to approve bob's project must SUCCEED now
     const approveBobResult = updatePrdStatus(prdBob.id, "Approved", "Attempting approval");
-    assert.ok(approveBobResult.error, "Must block approval of duplicate stack");
-    assert.strictEqual(approveBobResult.reason, "STACK ALREADY IN USE");
-    assert.ok(approveBobResult.error.includes("STACK ALREADY IN USE"));
-    assert.ok(approveBobResult.error.includes("B01"));
-
-    // Verify Bob's project remained Pending in database
-    const bobInDb = getPrdById(prdBob.id);
-    assert.strictEqual(bobInDb.status, "Pending");
+    assert.strictEqual(approveBobResult.status, "Approved");
 
     // 3. Create third project with duplicate title by dave
     const prdDave = submitPrd({
@@ -586,35 +580,19 @@ async function runTests() {
       problem_statement: "Same title idea.",
       core_features: "Web app",
       tech_stack: "Vue.js",
+      repo_url: "https://github.com/dave/campus-lost-found",
     });
 
     const approveDaveResult = updatePrdStatus(prdDave.id, "Approved", "Attempting approval");
-    assert.ok(approveDaveResult.error, "Must block approval of duplicate title");
-    assert.ok(approveDaveResult.error.includes("already approved"));
-
-    // 4. Create fourth unique project by eve (unique PS and title) -> approval must succeed
-    const prdEve = submitPrd({
-      title: "SRM Campus Ride Sharing",
-      track: "Beginner",
-      owner_id: "user_eve",
-      problem_statement_id: "B02",
-      team_members: "Solo",
-      problem_statement: "Carpooling on campus.",
-      core_features: "Ride matching, Route planning",
-      tech_stack: "Node.js, PostgreSQL",
-    });
-
-    const approveEveResult = updatePrdStatus(prdEve.id, "Approved", "Unique idea approved");
-    assert.strictEqual(approveEveResult.status, "Approved");
-    assert.strictEqual(approveEveResult.error, undefined);
+    assert.strictEqual(approveDaveResult.status, "Approved");
   });
 
   // 5.6. PRD Approval + Repository Assignment Workflow (Section 24 Tests)
   console.log("\n--- [5.6] PRD Approval + Repository Assignment UX (Section 24 Test Cases 1-10) ---");
 
-  // Test Case 1: First team takes B07 -> approve -> unique repo assigned
+  // Test Case 1: First team takes B07 -> approve -> submitted repo marked ready
   let teamAlphaProject = null;
-  test("Test Case 1: First team takes B07 -> approve -> unique repo assigned", () => {
+  test("Test Case 1: First team takes B07 -> approve -> submitted repo marked ready", () => {
     teamAlphaProject = submitPrd({
       title: "Automated File Organizer",
       track: "Beginner",
@@ -626,6 +604,7 @@ async function runTests() {
       core_features: "Folder watcher, Extension filter, Archival",
       tech_stack: "Python, Watchdog",
       proposal_pdf_url: "https://drive.google.com/alpha-proposal.pdf",
+      repo_url: "https://github.com/alpha/automated-file-organizer",
     });
 
     assert.strictEqual(teamAlphaProject.problem_statement_id, "B07");
@@ -634,14 +613,12 @@ async function runTests() {
     assert.strictEqual(approvalResult.success, true);
     assert.strictEqual(approvalResult.project.status, "Approved");
     assert.strictEqual(approvalResult.project.repo_status, "READY_TO_BUILD");
-    assert.ok(approvalResult.project.repo_url.includes("automated-file-organizer-python"));
-    assert.strictEqual(approvalResult.project.primary_stack, "Python");
-    assert.strictEqual(approvalResult.isDuplicatePs, false); // First team on B07
+    assert.strictEqual(approvalResult.project.repo_url, "https://github.com/alpha/automated-file-organizer");
   });
 
-  // Test Case 2: Second team takes B07 -> different valid stack -> approve -> second repo assigned -> first repo untouched
+  // Test Case 2: Second team takes B07 -> different valid stack -> approve -> second repo marked ready
   let teamBetaProject = null;
-  test("Test Case 2: Second team takes B07 -> different valid stack -> approve -> second repo assigned -> first repo untouched", () => {
+  test("Test Case 2: Second team takes B07 -> different valid stack -> approve -> second repo marked ready", () => {
     teamBetaProject = submitPrd({
       title: "Automated File Organizer",
       track: "Intermediate",
@@ -653,25 +630,18 @@ async function runTests() {
       core_features: "Background sync, Regex rules, Custom destinations",
       tech_stack: "Java, Spring Boot",
       proposal_pdf_url: "https://drive.google.com/beta-proposal.pdf",
+      repo_url: "https://github.com/beta/automated-file-organizer-java",
     });
 
     const approvalResult = approveAndAssignRepository(teamBetaProject.id, "Approved for Team Beta");
     assert.strictEqual(approvalResult.success, true);
     assert.strictEqual(approvalResult.project.status, "Approved");
     assert.strictEqual(approvalResult.project.repo_status, "READY_TO_BUILD");
-    assert.ok(approvalResult.project.repo_url.includes("automated-file-organizer-java"));
-    assert.strictEqual(approvalResult.project.primary_stack, "Java");
-    assert.strictEqual(approvalResult.isDuplicatePs, true); // Second team -> duplicate PS flag is set!
-
-    // Verify first repo untouched
-    const alphaFresh = getPrdById(teamAlphaProject.id);
-    assert.ok(alphaFresh.repo_url.includes("automated-file-organizer-python"));
-    assert.notStrictEqual(alphaFresh.repo_url, approvalResult.project.repo_url);
   });
 
   // Test Case 3: Third team takes B07 if capacity allows -> unique repo assigned
   let teamGammaProject = null;
-  test("Test Case 3: Third team takes B07 if capacity allows -> unique repo assigned", () => {
+  test("Test Case 3: Third team takes B07 (capacity check removed) -> third repo marked ready", () => {
     teamGammaProject = submitPrd({
       title: "Automated File Organizer",
       track: "Advanced",
@@ -683,17 +653,17 @@ async function runTests() {
       core_features: "Real-time sync, Web dashboard, Cloud upload",
       tech_stack: "React, Node.js",
       proposal_pdf_url: "https://drive.google.com/gamma-proposal.pdf",
+      repo_url: "https://github.com/gamma/automated-file-organizer-react",
     });
 
     const approvalResult = approveAndAssignRepository(teamGammaProject.id, "Approved for Team Gamma");
     assert.strictEqual(approvalResult.success, true);
     assert.strictEqual(approvalResult.project.status, "Approved");
-    assert.ok(approvalResult.project.repo_url.includes("automated-file-organizer-react"));
-    assert.strictEqual(approvalResult.isDuplicatePs, true);
+    assert.strictEqual(approvalResult.project.repo_status, "READY_TO_BUILD");
   });
 
-  // Test Case 4: PS capacity reached -> reject/block assignment
-  test("Test Case 4: PS capacity reached -> reject/block assignment", () => {
+  // Test Case 4: PS capacity reached -> NO REJECTION, STILL APPROVED
+  test("Test Case 4: PS capacity reached -> NO REJECTION, STILL APPROVED", () => {
     const teamDeltaProject = submitPrd({
       title: "Automated File Organizer",
       track: "Beginner",
@@ -704,23 +674,16 @@ async function runTests() {
       core_features: "CLI",
       tech_stack: "Go",
       proposal_pdf_url: "https://drive.google.com/delta-proposal.pdf",
+      repo_url: "https://github.com/delta/automated-file-organizer",
     });
 
-    // Capacity is 3, already have 3 teams (Alpha, Beta, Gamma)
     const approveDeltaResult = approveAndAssignRepository(teamDeltaProject.id, "Attempting approval");
-    assert.ok(approveDeltaResult.error, "Must block when capacity reached");
-    assert.strictEqual(approveDeltaResult.reason, "PROBLEM STATEMENT FULL");
-    assert.ok(approveDeltaResult.error.includes("PROBLEM STATEMENT FULL"));
-    assert.ok(approveDeltaResult.error.includes("B07"));
-
-    // Verify Delta remains Pending in database
-    const deltaInDb = getPrdById(teamDeltaProject.id);
-    assert.strictEqual(deltaInDb.status, "Pending");
+    assert.strictEqual(approveDeltaResult.status, "Approved");
+    assert.strictEqual(approveDeltaResult.project.repo_status, "READY_TO_BUILD");
   });
 
-  // Test Case 5: Same stack attempted -> prevent duplicate implementation stack
-  test("Test Case 5: Same stack attempted -> prevent duplicate implementation stack", () => {
-    // New PS: B09
+  // Test Case 5: Same stack attempted -> NO REJECTION, STILL APPROVED
+  test("Test Case 5: Same stack attempted -> NO REJECTION, STILL APPROVED", () => {
     const team1 = submitPrd({
       title: "Campus Marketplace",
       track: "Intermediate",
@@ -730,6 +693,7 @@ async function runTests() {
       problem_statement: "Campus trading app.",
       core_features: "Listings, Chat",
       tech_stack: "Python, FastAPI",
+      repo_url: "https://github.com/mkt1/campus-marketplace",
     });
     const app1 = approveAndAssignRepository(team1.id, "Approved team 1");
     assert.strictEqual(app1.success, true);
@@ -742,22 +706,17 @@ async function runTests() {
       problem_statement_id: "B09",
       problem_statement: "Campus trading app duplicate stack.",
       core_features: "Listings",
-      tech_stack: "Python, Flask", // Same primary stack: Python!
+      tech_stack: "Python, Flask",
+      repo_url: "https://github.com/mkt2/campus-marketplace",
     });
 
     const app2 = approveAndAssignRepository(team2.id, "Attempting duplicate stack");
-    assert.ok(app2.error, "Must block same stack on same PS");
-    assert.strictEqual(app2.reason, "STACK ALREADY IN USE");
-    assert.ok(app2.error.includes("STACK ALREADY IN USE"));
-    assert.ok(app2.error.includes("Python"));
-
-    const team2InDb = getPrdById(team2.id);
-    assert.strictEqual(team2InDb.status, "Pending");
+    assert.strictEqual(app2.status, "Approved");
   });
 
-  // Test Case 6: Repository creation failure -> PRD approved -> repo status remains pending -> staff alerted
+  // Test Case 6: Pending repo state handled if no repo provided
   let teamFailProject = null;
-  test("Test Case 6: Repository creation failure -> PRD approved, repo status remains pending", () => {
+  test("Test Case 6: No repo provided -> PRD approved, repo status remains pending", () => {
     teamFailProject = submitPrd({
       title: "Event RSVP Manager",
       track: "Beginner",
@@ -767,92 +726,58 @@ async function runTests() {
       problem_statement: "Event RSVPs.",
       core_features: "RSVP",
       tech_stack: "Node.js",
+      repo_url: "", // No repo
     });
 
-    const failApproval = approveAndAssignRepository(teamFailProject.id, "Approved with simulated repo failure", {
-      simulateFailure: true,
-      failureReason: "GitHub API 500 server error",
-    });
+    const failApproval = approveAndAssignRepository(teamFailProject.id, "Approved with no repo");
 
     assert.strictEqual(failApproval.success, true); // PRD itself approved
     assert.strictEqual(failApproval.project.status, "Approved");
     assert.strictEqual(failApproval.project.repo_status, "PENDING_ASSIGNMENT");
-    assert.strictEqual(failApproval.repoResult.success, false);
-
-    // Verify DB record has repo_status = PENDING_ASSIGNMENT
-    const failInDb = getPrdById(teamFailProject.id);
-    assert.strictEqual(failInDb.repo_status, "PENDING_ASSIGNMENT");
 
     // Notification indicates repository is being assigned
+    const failInDb = getPrdById(teamFailProject.id);
     const notif = buildParticipantApprovalView(failInDb, false, failApproval.repoResult);
     assert.ok(notif.embed.data.description.includes("BEING ASSIGNED"));
   });
 
-  // Test Case 7: Existing repository -> associate correctly -> do not duplicate
-  test("Test Case 7: Existing repository -> associate correctly -> do not duplicate", () => {
-    const teamExist = submitPrd({
-      title: "Smart Attendance",
-      track: "Beginner",
-      owner_id: "user_att_exist",
-      team_members: "Solo",
-      problem_statement_id: "B11",
-      problem_statement: "Attendance tracking.",
-      core_features: "Attendance",
-      tech_stack: "Python",
-    });
-
-    const appExist = approveAndAssignRepository(teamExist.id, "Approved existing", {
-      existingRepoFound: true,
-    });
-
-    assert.strictEqual(appExist.success, true);
-    assert.strictEqual(appExist.repoResult.assignmentType, "CONNECTED");
-    assert.strictEqual(appExist.project.repo_status, "READY_TO_BUILD");
-    assert.ok(!appExist.project.repo_url.includes("-2"));
-  });
-
-  // Test Case 8: Participant status after approval -> shows correct repository state
-  test("Test Case 8: Participant status after approval -> shows correct repository state", () => {
-    // 8a: Ready project shows Ready
+  // Test Case 7: Participant status after approval -> shows correct repository state
+  test("Test Case 7: Participant status after approval -> shows correct repository state", () => {
+    // 7a: Ready project shows Ready
     const readyProject = getPrdById(teamAlphaProject.id);
     assert.strictEqual(readyProject.repo_status, "READY_TO_BUILD");
     assert.ok(readyProject.repo_url);
 
-    // 8b: Pending project shows Being assigned
+    // 7b: Pending project shows Being assigned
     const pendingProject = getPrdById(teamFailProject.id);
     assert.ok(pendingProject, "Pending project must exist");
     assert.strictEqual(pendingProject.repo_status, "PENDING_ASSIGNMENT");
   });
 
-  // Test Case 9: Staff review -> clearly shows PS usage and proposed stack
-  test("Test Case 9: Staff review -> clearly shows PS usage and proposed stack", () => {
+  // Test Case 8: Staff review -> shows stack and repo
+  test("Test Case 8: Staff review -> shows stack and repo", () => {
     const reviewProject = getPrdById(teamBetaProject.id);
     const staffEmbed = buildPrdViewEmbed(reviewProject, true);
 
     const fields = staffEmbed.data.fields;
-    const usageField = fields.find((f) => f.name === "CURRENT PS USAGE");
-    assert.ok(usageField, "Must include CURRENT PS USAGE field");
-    assert.ok(usageField.value.includes("TEAMS"));
-
-    const proposedField = fields.find((f) => f.name === "PROPOSED IMPLEMENTATION");
-    assert.ok(proposedField, "Must include PROPOSED IMPLEMENTATION field");
+    const proposedField = fields.find((f) => f.name === "STACK");
+    assert.ok(proposedField, "Must include STACK field");
     assert.ok(proposedField.value.includes("Java"));
 
-    const existingField = fields.find((f) => f.name === "EXISTING IMPLEMENTATIONS");
-    assert.ok(existingField, "Must include EXISTING IMPLEMENTATIONS field");
+    const repoField = fields.find((f) => f.name === "GITHUB REPOSITORY");
+    assert.ok(repoField, "Must include GITHUB REPOSITORY field");
+    assert.ok(repoField.value.includes("https://github.com/beta/automated-file-organizer-java"));
   });
 
-  // Test Case 10: Participant receives approval notification -> clearly understands PRD approved, repo state, repo URL
-  test("Test Case 10: Participant receives approval notification with complete information", () => {
+  // Test Case 9: Participant receives approval notification -> clearly understands PRD approved, repo state, repo URL
+  test("Test Case 9: Participant receives approval notification with complete information", () => {
     const betaInDb = getPrdById(teamBetaProject.id);
-    const viewResult = buildParticipantApprovalView(betaInDb, true, { success: true });
+    const viewResult = buildParticipantApprovalView(betaInDb, false, { success: true });
 
     // Verify Title and Duplicate PS notice
-    assert.strictEqual(viewResult.embed.data.title, "✅ PRD APPROVED");
-    assert.ok(viewResult.embed.data.description.includes("SHARED BY MULTIPLE TEAMS"));
-    assert.ok(viewResult.embed.data.description.includes("separate repository"));
+    assert.strictEqual(viewResult.embed.data.title, "✅ YOUR PROJECT IS APPROVED");
+    assert.ok(viewResult.embed.data.description.includes("READY"));
     assert.ok(viewResult.embed.data.description.includes("automated-file-organizer-java"));
-    assert.ok(viewResult.embed.data.description.includes("READY TO BUILD"));
 
     // Verify Buttons: Link to repo, View PRD, Project Status
     const buttons = viewResult.components[0].components;

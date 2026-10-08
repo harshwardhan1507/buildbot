@@ -345,28 +345,8 @@ function buildPrdViewEmbed(prd, isStaff = false) {
 
   if (isStaff) {
     // Section 11: Staff Review Screen
-    const psUsage = getPsUsage(prd.problem_statement_id);
     const teamName = prd.team_name || `<@${prd.owner_id}>`;
     const trackFormat = `${prd.track.toUpperCase()} · ${(prd.team_members && prd.team_members.toLowerCase() !== "solo") ? "TEAM" : "SOLO"}`;
-
-    const usageText = psUsage.isCatalogue
-      ? `${psUsage.totalApproved} / ${psUsage.capacity} TEAMS`
-      : "Own Idea · Independent Proposal";
-
-    const existingImplText = psUsage.existingStacks.length > 0
-      ? psUsage.existingStacks.map((s) => `• ${s}`).join("\n")
-      : "• None yet";
-
-    let repoStaffText = "🟡 Will be assigned on approval";
-    if (prd.status === "Approved") {
-      if (prd.repo_status === "READY_TO_BUILD" && prd.repo_url) {
-        repoStaffText = `🟢 ${prd.repo_url}`;
-      } else if (prd.repo_status === "PENDING_ASSIGNMENT") {
-        repoStaffText = "🟡 Being assigned";
-      } else if (prd.repo_url) {
-        repoStaffText = `🟢 ${prd.repo_url}`;
-      }
-    }
 
     const embed = createBaseEmbed(
       "PRD REVIEW",
@@ -375,11 +355,8 @@ function buildPrdViewEmbed(prd, isStaff = false) {
     ).addFields(
       { name: "TEAM", value: teamName, inline: true },
       { name: "TRACK", value: trackFormat, inline: true },
-      { name: "STATUS", value: statusLabel, inline: true },
-      { name: "CURRENT PS USAGE", value: usageText, inline: true },
-      { name: "PROPOSED IMPLEMENTATION", value: `• ${primaryStack}`, inline: true },
-      { name: "EXISTING IMPLEMENTATIONS", value: existingImplText, inline: false },
-      { name: "REPOSITORY", value: repoStaffText, inline: false },
+      { name: "STACK", value: primaryStack, inline: true },
+      { name: "GITHUB REPOSITORY", value: prd.repo_url || "Not linked", inline: false },
       { name: "Problem", value: prd.problem_statement ? prd.problem_statement.slice(0, 1024) : "Not specified", inline: false },
       { name: "Solution", value: prd.solution ? prd.solution.slice(0, 1024) : "Not specified", inline: false },
       { name: "Core Features", value: prd.core_features ? prd.core_features.slice(0, 1024) : "Not specified", inline: false },
@@ -398,22 +375,17 @@ function buildPrdViewEmbed(prd, isStaff = false) {
   }
 
   // Section 18: Participant /prd view
-  let repoDisplay = "⚪ Not assigned";
   let urlDisplay = "Not assigned yet";
 
   if (prd.status === "Approved") {
     if (prd.repo_status === "READY_TO_BUILD" && prd.repo_url) {
-      repoDisplay = "🟢 Ready";
       urlDisplay = `[${prd.repo_name || prd.repo_url}](${prd.repo_url})`;
     } else if (prd.repo_status === "PENDING_ASSIGNMENT") {
-      repoDisplay = "🟡 Being assigned";
-      urlDisplay = "Being prepared by BuildLab Team...";
+      urlDisplay = "Being prepared...";
     } else if (prd.repo_url) {
-      repoDisplay = "🟢 Assigned";
       urlDisplay = `[${prd.repo_name || prd.repo_url}](${prd.repo_url})`;
     }
   } else if (prd.repo_url) {
-    repoDisplay = "🟡 Pending review";
     urlDisplay = `[${prd.repo_url}](${prd.repo_url})`;
   }
 
@@ -424,10 +396,8 @@ function buildPrdViewEmbed(prd, isStaff = false) {
     `**${projectTitle}**`,
     color
   ).addFields(
-    { name: "TRACK", value: `${prd.track} · ${teamFormat}`, inline: true },
     { name: "PRD", value: statusLabel, inline: true },
-    { name: "REPOSITORY", value: repoDisplay, inline: true },
-    { name: "URL", value: urlDisplay, inline: false },
+    { name: "GITHUB REPOSITORY", value: urlDisplay, inline: false },
     {
       name: "Proposal PDF",
       value: prd.proposal_pdf_url
@@ -533,7 +503,7 @@ module.exports = {
         actionRow.addComponents(
           new ButtonBuilder()
             .setCustomId(`prd_quick_approve_${prd.id}`)
-            .setLabel("APPROVE + ASSIGN REPO")
+            .setLabel("APPROVE")
             .setEmoji("✅")
             .setStyle(ButtonStyle.Success),
           new ButtonBuilder()
@@ -602,11 +572,8 @@ module.exports = {
         return interaction.reply({ embeds: [createErrorEmbed("Proposal Not Found", `No proposal found with ID \`${id}\`.`)], ephemeral: true });
       }
       if (updated.error) {
-        const errorTitle = updated.reason === "PROBLEM STATEMENT FULL"
-          ? "⚠️ PROBLEM STATEMENT FULL"
-          : (updated.reason === "STACK ALREADY IN USE" ? "⚠️ STACK ALREADY IN USE" : "Cannot Approve Proposal");
         return interaction.reply({
-          embeds: [createErrorEmbed(errorTitle, updated.error)],
+          embeds: [createErrorEmbed("Cannot Approve Proposal", updated.error)],
           ephemeral: true,
         });
       }
@@ -636,17 +603,17 @@ module.exports = {
       }
 
       const repoStatusText = updated.repo_status === "READY_TO_BUILD"
-        ? `🟢 Ready ([${updated.repo_name || updated.repo_url}](${updated.repo_url}))`
+        ? `🟢 Ready ([${updated.repo_url}](${updated.repo_url}))`
         : "🟡 Being assigned";
 
       return interaction.reply({
         embeds: [
           createSuccessEmbed(
-            "🟢 PRD APPROVED & REPO ASSIGNED",
+            "🟢 PRD APPROVED",
             `**Project:** ${updated.title} (\`${updated.id}\`)\n` +
               `**Track:** ${updated.track}\n` +
               `**Owner:** <@${updated.owner_id}>\n` +
-              `**Primary Stack:** ${updated.primary_stack || "General"}\n` +
+              `**Stack:** ${updated.primary_stack || "General"}\n` +
               `**Repository:** ${repoStatusText}\n\n` +
               `**Mentor Feedback:**\n> ${feedback}\n\n` +
               `The proposal is approved and project state is set to **DEVELOPMENT**.*${roleInfo}*\n\n` +

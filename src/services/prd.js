@@ -618,15 +618,6 @@ function getPsUsage(problemStatementId) {
   };
 }
 
-/**
- * Validates PRD approval against:
- * 1. Owner uniqueness (User cannot have multiple approved projects)
- * 2. Problem Statement capacity (Cannot exceed allowed team capacity)
- * 3. Stack uniqueness on duplicate PS (Another team cannot use the same primary stack)
- * 4. Title uniqueness for own ideas
- * @param {string} prdId 
- * @returns {{ isDuplicate: boolean, conflict?: object, reason?: string, error?: string }}
- */
 function checkDuplicateApprovedProject(prdId) {
   const prd = getPrdById(prdId);
   if (!prd) return { isDuplicate: false };
@@ -646,59 +637,7 @@ function checkDuplicateApprovedProject(prdId) {
     }
   }
 
-  // 2. Catalogue Problem Statement Checks
-  if (prd.problem_statement_id) {
-    const cleanPsId = prd.problem_statement_id.trim().toUpperCase();
-    const psUsage = getPsUsage(cleanPsId);
-
-    // Other approved projects for this PS (excluding self)
-    const otherApprovedWithPs = psUsage.approvedProjects.filter(
-      (p) => p.id.toUpperCase() !== prd.id.toUpperCase()
-    );
-
-    // Section 10: PS Capacity Check
-    if (otherApprovedWithPs.length >= psUsage.capacity) {
-      return {
-        isDuplicate: true,
-        reason: "PROBLEM STATEMENT FULL",
-        error: `⚠️ PROBLEM STATEMENT FULL\n\n${cleanPsId} has reached its team capacity.\n\nChoose another problem statement or handle the proposal manually.`,
-      };
-    }
-
-    // Section 9: Stack Collision Check
-    const proposedStack = prd.primary_stack || extractPrimaryStack(prd.tech_stack);
-    const normProposed = normalizeStack(proposedStack);
-
-    for (const approved of otherApprovedWithPs) {
-      const approvedStack = approved.primary_stack || extractPrimaryStack(approved.tech_stack);
-      if (normalizeStack(approvedStack) === normProposed) {
-        return {
-          isDuplicate: true,
-          conflict: approved,
-          reason: "STACK ALREADY IN USE",
-          error: `⚠️ STACK ALREADY IN USE\n\n${cleanPsId} is already assigned to:\n${approvedStack}\n\nThe proposed stack:\n${proposedStack}\nis already being used by another team for this problem statement.\n\nPlease ask the team to choose a different primary implementation stack.`,
-        };
-      }
-    }
-  } else {
-    // 3. For Own Idea projects without catalogue PS ID, check title collision
-    for (const approved of approvedProjects) {
-      if (approved.id.toUpperCase() === prd.id.toUpperCase()) continue;
-      if (
-        prd.title &&
-        approved.title &&
-        prd.title.trim().toLowerCase() === approved.title.trim().toLowerCase()
-      ) {
-        return {
-          isDuplicate: true,
-          conflict: approved,
-          reason: `A project with the title '${prd.title.trim()}' is already approved (\`${approved.id}\`).`,
-          error: `A project with the title '${prd.title.trim()}' is already approved (\`${approved.id}\`).`,
-        };
-      }
-    }
-  }
-
+  // No longer blocking for duplicate problem statement, stack, or repository.
   return { isDuplicate: false };
 }
 
@@ -743,28 +682,16 @@ function approveAndAssignRepository(id, reason = null, options = {}) {
 
   const approvedProject = getPrdById(id);
 
-  // 2. Assign / Create Repository
-  const repoResult = createOrAssignTeamRepo(approvedProject, options);
-
-  // 3. Save Repository Association & Status
-  if (repoResult.success) {
+  // 2. Mark existing repo as ready (no new repos assigned)
+  if (approvedProject.repo_url) {
     db.prepare(`
       UPDATE projects SET
-        repo_url = ?,
-        repo_name = ?,
         repo_status = 'READY_TO_BUILD',
-        repo_assignment_type = ?,
+        repo_assignment_type = 'CONNECTED',
         last_activity_at = ?,
         updated_at = ?
       WHERE UPPER(id) = UPPER(?)
-    `).run(
-      repoResult.repoUrl,
-      repoResult.repoName,
-      repoResult.assignmentType,
-      now,
-      now,
-      id.trim()
-    );
+    `).run(now, now, id.trim());
   } else {
     db.prepare(`
       UPDATE projects SET
@@ -776,21 +703,15 @@ function approveAndAssignRepository(id, reason = null, options = {}) {
 
   const finalProject = getPrdById(id);
   const psUsage = getPsUsage(finalProject.problem_statement_id);
-  const isDuplicatePs = psUsage.isCatalogue && psUsage.totalApproved > 1;
 
-  // 4. Internal Audit Logging (Section 19)
-  console.log("[AUDIT LOG] PRD Approval & Repository Assignment:", {
+  // 3. Internal Audit Logging
+  console.log("[AUDIT LOG] PRD Approval:", {
     action: "PRD_APPROVED",
     problem_statement_id: finalProject.problem_statement_id || "OWN_IDEA",
     project_id: finalProject.id,
     team_id: finalProject.team_name || finalProject.owner_id,
     selected_stack: primaryStack,
-    existing_ps_usage: psUsage.isCatalogue
-      ? `${psUsage.totalApproved} / ${psUsage.capacity} TEAMS`
-      : "N/A",
-    repository_name: finalProject.repo_name || repoResult.repoName || "N/A",
-    repository_creation_success: repoResult.success,
-    repository_association: finalProject.repo_url || "PENDING",
+    repository_url: finalProject.repo_url,
     notification_sent: true,
     timestamp: now,
   });
@@ -799,8 +720,8 @@ function approveAndAssignRepository(id, reason = null, options = {}) {
     success: true,
     status: "Approved",
     project: finalProject,
-    repoResult,
-    isDuplicatePs,
+    repoResult: { success: true, assignmentType: "CONNECTED", repoUrl: finalProject.repo_url, repoName: finalProject.repo_url },
+    isDuplicatePs: false,
     psUsage,
     ...finalProject, // spread project fields for direct property access compatibility
   };
@@ -853,44 +774,27 @@ function updatePrdStatus(id, status, reason = null, options = {}) {
 function buildParticipantApprovalView(project, isDuplicatePs = false, repoResult = null) {
   const isRepoReady = project.repo_status === "READY_TO_BUILD" && project.repo_url;
 
-  const embed = createBaseEmbed("✅ PRD APPROVED", "", COLORS.SUCCESS);
+  const embed = createBaseEmbed("✅ YOUR PROJECT IS APPROVED", "", COLORS.SUCCESS);
+  const teamFormat = project.track === "Beginner"
+    ? "SOLO"
+    : (project.team_members && project.team_members.toLowerCase() !== "solo" ? "TEAM" : "SOLO");
 
-  if (isDuplicatePs && isRepoReady) {
-    // Section 3 & 14: Duplicate Problem Statement
-    embed.setTitle("✅ PRD APPROVED");
+  if (isRepoReady) {
     embed.setDescription(
-      "Your proposal has been approved.\n\n" +
-      `**PROBLEM STATEMENT**\n${project.problem_statement_id ? `${project.problem_statement_id} · ` : ""}${project.title}\n\n` +
-      "**THIS PROJECT IS SHARED BY MULTIPLE TEAMS**\n" +
-      "Your team has been assigned a separate repository so you can build your own implementation independently.\n\n" +
-      `**YOUR REPOSITORY**\n\`${project.repo_name || project.repo_url.replace(/^https?:\/\/github\.com\//, "")}\`\n\n` +
-      "**STATUS**\n🟢 READY TO BUILD\n\n" +
-      "*Other teams may be building the same problem statement. Your team has its own repository and independent project workspace.*"
-    );
-  } else if (isRepoReady) {
-    // Section 2 & 13: Normal Project
-    const teamFormat = project.track === "Beginner"
-      ? "SOLO"
-      : (project.team_members && project.team_members.toLowerCase() !== "solo" ? "TEAM" : "SOLO");
-
-    embed.setTitle("✅ PRD APPROVED");
-    embed.setDescription(
-      "Your project proposal has been approved by the BuildLab Team.\n\n" +
-      `**PROJECT**\n${project.problem_statement_id ? `${project.problem_statement_id} · ` : ""}${project.title}\n\n` +
+      `**${project.problem_statement_id ? `${project.problem_statement_id} · ` : ""}${project.title}**\n\n` +
       `**TRACK**\n${project.track.toUpperCase()} · ${teamFormat}\n\n` +
-      `**REPOSITORY**\nYour BuildLab repository has been assigned:\n${project.repo_url}\n\n` +
-      "**STATUS**\n🟢 READY TO BUILD"
+      `**PRD**\n🟢 APPROVED\n\n` +
+      `**REPOSITORY**\n🟢 READY\n\n${project.repo_url}\n\n` +
+      "🚀 You can start building."
     );
   } else {
-    // Section 6 & 20: Repo being assigned / pending
-    embed.setTitle("✅ PRD APPROVED");
     embed.setColor(COLORS.WARNING);
     embed.setDescription(
-      "Your proposal has been approved.\n\n" +
-      `**PROJECT**\n${project.problem_statement_id ? `${project.problem_statement_id} · ` : ""}${project.title}\n\n` +
-      `**TRACK**\n${project.track.toUpperCase()}\n\n` +
-      "**REPOSITORY**\n🟡 BEING ASSIGNED\n\n" +
-      "We're preparing your BuildLab repository.\nYou don't need to do anything yet."
+      `**${project.problem_statement_id ? `${project.problem_statement_id} · ` : ""}${project.title}**\n\n` +
+      `**TRACK**\n${project.track.toUpperCase()} · ${teamFormat}\n\n` +
+      `**PRD**\n🟢 APPROVED\n\n` +
+      `**REPOSITORY**\n🟡 BEING ASSIGNED\n\n` +
+      "We're preparing your repository.\nYou don't need to do anything yet."
     );
   }
 
