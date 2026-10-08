@@ -45,6 +45,10 @@ const SCHEMA_SQL = `
     mentor_status TEXT DEFAULT 'Not Assessed',
     mentor_status_note TEXT,
     mentor_status_updated_at TEXT,
+    repo_status TEXT DEFAULT 'NOT_ASSIGNED',
+    repo_name TEXT,
+    primary_stack TEXT,
+    repo_assignment_type TEXT,
     last_activity_at TEXT,
     created_at TEXT,
     updated_at TEXT
@@ -147,6 +151,10 @@ function applySchemaAndMigrations(dbInstance, isMemory = false) {
     { name: "biggest_challenge", type: "TEXT" },
     { name: "final_outcome", type: "TEXT" },
     { name: "proposal_pdf_url", type: "TEXT" },
+    { name: "repo_status", type: "TEXT DEFAULT 'NOT_ASSIGNED'" },
+    { name: "repo_name", type: "TEXT" },
+    { name: "primary_stack", type: "TEXT" },
+    { name: "repo_assignment_type", type: "TEXT" },
   ];
 
   for (const col of newColumns) {

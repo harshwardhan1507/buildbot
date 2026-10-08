@@ -36,6 +36,17 @@ const config = {
     Intermediate: { min: 2, max: 2, label: "Duo (2 members)" },
     Advanced: { min: 3, max: 4, label: "Squad (3–4 members)" },
   },
+  catalogue: {
+    defaultCapacity: 3,
+    capacities: {
+      B01: 3,
+      B07: 3,
+    },
+    knownProblemStatements: {
+      B01: { id: "B01", title: "Campus Lost & Found", baseRepo: "campus-lost-and-found", capacity: 3 },
+      B07: { id: "B07", title: "Automated File Organizer", baseRepo: "automated-file-organizer", capacity: 3 },
+    },
+  },
   stages: [
     "PLANNING",
     "PRD_REVIEW",

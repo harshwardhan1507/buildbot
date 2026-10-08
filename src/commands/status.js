@@ -77,23 +77,46 @@ module.exports = {
         Rejected: "🔴 Rejected",
       };
 
-      const ghStatus = project.repo_url ? "Connected" : "Not connected";
       const teamFormat = project.team_members || (project.track === "Beginner" ? "Solo" : "Team");
       const stageName = project.stage === "DEVELOPMENT" ? "Build" : (project.stage === "PRD_REVIEW" ? "Proposal Review" : project.stage);
+      const projectTitle = project.problem_statement_id ? `${project.problem_statement_id} · ${project.title}` : project.title;
+
+      let repoStatusSection = "⚪ Not assigned";
+      if (project.status === "Approved") {
+        if (project.repo_status === "READY_TO_BUILD" && project.repo_url) {
+          repoStatusSection = `🟢 Ready\n[${project.repo_name || project.repo_url}](${project.repo_url})`;
+        } else if (project.repo_status === "PENDING_ASSIGNMENT") {
+          repoStatusSection = "🟡 Being assigned";
+        } else if (project.repo_url) {
+          repoStatusSection = `🟢 Ready\n[${project.repo_name || project.repo_url}](${project.repo_url})`;
+        } else {
+          repoStatusSection = "🟡 Being assigned";
+        }
+      } else if (project.repo_url) {
+        repoStatusSection = `🟡 Pending approval\n[${project.repo_url}](${project.repo_url})`;
+      }
 
       const embed = createBaseEmbed(
         "YOUR BUILDLAB STATUS",
-        `🆔 **PROJECT ID**\n\`${project.id}\`\n\n` +
-          `**PROJECT**\n${project.title}\n\n` +
+        `**YOUR PROJECT**\n${projectTitle}\n\n` +
           `**TRACK**\n${project.track} · ${teamFormat}\n\n` +
           `**PRD**\n${prdStatusIcons[project.status] || project.status}\n\n` +
-          `**GITHUB**\n${ghStatus}\n\n` +
+          `**REPOSITORY**\n${repoStatusSection}\n\n` +
           `**PROGRESS**\n${progress.percentage}%\n\n` +
           `**CURRENT STAGE**\n${stageName}`,
-        COLORS.SUCCESS
+        project.status === "Approved" ? COLORS.SUCCESS : COLORS.DEFAULT
       ).addFields(phaseFields);
 
-      const row = new ActionRowBuilder().addComponents(
+      const row = new ActionRowBuilder();
+      if (project.status === "Approved" && project.repo_status === "READY_TO_BUILD" && project.repo_url) {
+        row.addComponents(
+          new ButtonBuilder()
+            .setLabel("Open Repository ↗")
+            .setStyle(ButtonStyle.Link)
+            .setURL(project.repo_url)
+        );
+      }
+      row.addComponents(
         new ButtonBuilder()
           .setCustomId("prd_view_own")
           .setLabel("View PRD")

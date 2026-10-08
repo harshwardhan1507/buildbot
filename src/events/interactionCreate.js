@@ -22,6 +22,7 @@ const {
   getPrdByOwnerId,
   getPendingPrds,
   updatePrdStatus,
+  buildParticipantApprovalView,
   assignMentor,
   setMentorStatus,
 } = require("../services/prd");
@@ -141,7 +142,7 @@ module.exports = {
               actionRow.addComponents(
                 new ButtonBuilder()
                   .setCustomId(`prd_quick_approve_${prd.id}`)
-                  .setLabel("Approve")
+                  .setLabel("APPROVE + ASSIGN REPO")
                   .setEmoji("✅")
                   .setStyle(ButtonStyle.Success),
                 new ButtonBuilder()
@@ -448,8 +449,11 @@ module.exports = {
             return interaction.reply({ content: "❌ Project not found.", ephemeral: true });
           }
           if (updated.error) {
+            const errorTitle = updated.reason === "PROBLEM STATEMENT FULL"
+              ? "⚠️ PROBLEM STATEMENT FULL"
+              : (updated.reason === "STACK ALREADY IN USE" ? "⚠️ STACK ALREADY IN USE" : "Cannot Approve Proposal");
             return interaction.reply({
-              embeds: [createErrorEmbed("Cannot Approve Duplicate Project", updated.error)],
+              embeds: [createErrorEmbed(errorTitle, updated.error)],
               ephemeral: true,
             });
           }
@@ -460,9 +464,35 @@ module.exports = {
               roleInfo = `\n\n🎭 **Track Role Assigned:** @${updated.track} assigned to **${teamRoleResult.assignedMembers.length}** team member(s).`;
             }
           }
+
+          // Notify Participant via DM (Sections 2, 3, 13, 14, 22)
+          try {
+            const ownerUser = await interaction.client.users.fetch(updated.owner_id).catch(() => null);
+            if (ownerUser) {
+              const { embed: participantEmbed, components: participantComponents } = buildParticipantApprovalView(
+                updated,
+                updated.isDuplicatePs,
+                updated.repoResult
+              );
+              await ownerUser.send({ embeds: [participantEmbed], components: participantComponents }).catch(() => {});
+            }
+          } catch (dmErr) {
+            console.warn(`Could not DM participant ${updated.owner_id}:`, dmErr.message);
+          }
+
+          const repoStatusText = updated.repo_status === "READY_TO_BUILD"
+            ? `🟢 Ready ([${updated.repo_name || updated.repo_url}](${updated.repo_url}))`
+            : "🟡 Being assigned";
+
           const embed = createSuccessEmbed(
-            "Proposal Approved! 🎉",
-            `Project **${updated.title}** (\`${updated.id}\`) is now approved for **DEVELOPMENT**.*${roleInfo}*`
+            "🟢 PRD APPROVED & REPO ASSIGNED",
+            `**Project:** ${updated.title} (\`${updated.id}\`)\n` +
+              `**Track:** ${updated.track}\n` +
+              `**Owner:** <@${updated.owner_id}>\n` +
+              `**Primary Stack:** ${updated.primary_stack || "General"}\n` +
+              `**Repository:** ${repoStatusText}\n\n` +
+              `Project state is set to **DEVELOPMENT**.*${roleInfo}*\n\n` +
+              `*Participant has been notified.*`
           );
           return interaction.reply({ embeds: [embed] });
         }

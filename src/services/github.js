@@ -312,6 +312,134 @@ function stopWebhookServer() {
   }
 }
 
+const KNOWN_STACKS = [
+  { name: "Python", regex: /\b(python|django|fastapi|flask)\b/i },
+  { name: "Java", regex: /\b(java|spring|springboot)\b/i },
+  { name: "React", regex: /\b(react|reactjs|nextjs|next\.js)\b/i },
+  { name: "Node.js", regex: /\b(node|nodejs|node\.js|express)\b/i },
+  { name: "Go", regex: /\b(golang|go)\b/i },
+  { name: "Rust", regex: /\b(rust)\b/i },
+  { name: "Flutter", regex: /\b(flutter|dart)\b/i },
+  { name: "Kotlin", regex: /\b(kotlin|android)\b/i },
+  { name: "Swift", regex: /\b(swift|ios)\b/i },
+  { name: "C++", regex: /\b(c\+\+|cpp)\b/i },
+  { name: "C#", regex: /\b(c#|csharp|\.net)\b/i },
+  { name: "TypeScript", regex: /\b(typescript|ts)\b/i },
+  { name: "Vue", regex: /\b(vue|vuejs|nuxt)\b/i },
+  { name: "Angular", regex: /\b(angular)\b/i },
+  { name: "PHP", regex: /\b(php|laravel)\b/i },
+  { name: "Ruby", regex: /\b(ruby|rails)\b/i },
+];
+
+function extractPrimaryStack(techStack) {
+  if (!techStack || typeof techStack !== "string") return "General";
+  const trimmed = techStack.trim();
+  for (const item of KNOWN_STACKS) {
+    if (item.regex.test(trimmed)) {
+      return item.name;
+    }
+  }
+  const firstToken = trimmed.split(/[,/|;\s]+/)[0];
+  if (!firstToken) return "General";
+  return firstToken.charAt(0).toUpperCase() + firstToken.slice(1).toLowerCase();
+}
+
+function normalizeStack(stack) {
+  if (!stack || typeof stack !== "string") return "general";
+  const cleaned = stack.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (cleaned === "nodejs" || cleaned === "node") return "node";
+  if (cleaned === "reactjs" || cleaned === "react") return "react";
+  if (cleaned === "vuejs" || cleaned === "vue") return "vue";
+  return cleaned;
+}
+
+function generateDeterministicRepoName(title, psId, primaryStack) {
+  let baseRepo = "";
+  if (psId && config.catalogue?.knownProblemStatements?.[psId]?.baseRepo) {
+    baseRepo = config.catalogue.knownProblemStatements[psId].baseRepo;
+  } else if (title) {
+    baseRepo = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  } else if (psId) {
+    baseRepo = `project-${psId.toLowerCase()}`;
+  } else {
+    baseRepo = "buildlab-project";
+  }
+
+  const normStack = normalizeStack(primaryStack);
+  if (normStack && normStack !== "general") {
+    if (!baseRepo.endsWith(`-${normStack}`)) {
+      return `${baseRepo}-${normStack}`;
+    }
+  }
+  return baseRepo;
+}
+
+function createOrAssignTeamRepo(project, options = {}) {
+  const org = options.org || config.github.org || "techspace-srm";
+  const primaryStack = project.primary_stack || extractPrimaryStack(project.tech_stack);
+
+  if (options.simulateFailure) {
+    return {
+      success: false,
+      primaryStack,
+      repoStatus: "PENDING_ASSIGNMENT",
+      error: options.failureReason || "Repository preparation failed on GitHub",
+    };
+  }
+
+  // If already ready and linked
+  if (project.repo_url && project.repo_status === "READY_TO_BUILD") {
+    const cleanName = project.repo_url.replace(/^https?:\/\/github\.com\//i, "").replace(/\/$/, "");
+    return {
+      success: true,
+      repoUrl: project.repo_url,
+      repoName: cleanName,
+      primaryStack,
+      assignmentType: project.repo_assignment_type || "CONNECTED",
+      repoStatus: "READY_TO_BUILD",
+    };
+  }
+
+  const repoSlug = generateDeterministicRepoName(
+    project.title,
+    project.problem_statement_id,
+    primaryStack
+  );
+  const targetRepoName = `${org}/${repoSlug}`;
+  const targetRepoUrl = `https://github.com/${targetRepoName}`;
+
+  // Check no OTHER project is already linked to this repo
+  const otherProject = db.prepare(
+    "SELECT id, title FROM projects WHERE id != ? AND (LOWER(repo_url) = LOWER(?) OR LOWER(repo_name) = LOWER(?))"
+  ).get(project.id, targetRepoUrl, targetRepoName);
+
+  if (otherProject) {
+    return {
+      success: false,
+      primaryStack,
+      repoStatus: "PENDING_ASSIGNMENT",
+      error: `Repository ${targetRepoName} is already assigned to project '${otherProject.title}' (${otherProject.id}).`,
+    };
+  }
+
+  let assignmentType = options.existingRepoFound ? "CONNECTED" : (options.created ? "CREATED" : "ASSIGNED");
+
+  // Connect repo to database
+  connectProjectRepo(project.id, targetRepoUrl);
+
+  return {
+    success: true,
+    repoUrl: targetRepoUrl,
+    repoName: targetRepoName,
+    primaryStack,
+    assignmentType,
+    repoStatus: "READY_TO_BUILD",
+  };
+}
+
 module.exports = {
   verifySignature,
   calculateActivityHealth,
@@ -321,4 +449,9 @@ module.exports = {
   handleWebhookEvent,
   startWebhookServer,
   stopWebhookServer,
+  KNOWN_STACKS,
+  extractPrimaryStack,
+  normalizeStack,
+  generateDeterministicRepoName,
+  createOrAssignTeamRepo,
 };
