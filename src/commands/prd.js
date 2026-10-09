@@ -295,7 +295,7 @@ function buildFinalSummary(draft) {
     { name: "Core Features", value: (draft.core_features || "Not specified").slice(0, 500), inline: false },
     { name: "Stretch Features", value: (draft.final_outcome || draft.stretch_features || "None").slice(0, 300), inline: false },
     { name: "Tech Stack", value: draft.tech_stack || "Not specified", inline: true },
-    { name: "GitHub", value: draft.repo_url ? `[${draft.repo_url}](${draft.repo_url})` : "Not linked", inline: true },
+    { name: "GitHub", value: draft.repo_url ? `${draft.repo_url}` : "Not linked", inline: true },
     { name: "Proposal PDF", value: pdfDisplay, inline: false }
   );
 
@@ -1171,7 +1171,7 @@ module.exports = {
       if (interaction.member) {
         const roleResult = await assignTrackRole(interaction.member, draft.track);
         if (roleResult.success && roleResult.assignedRole) {
-          roleText = `@${roleResult.assignedRole.name}`;
+          roleText = `<@${roleResult.assignedRole.id}>`;
         } else {
           console.error(`[ROLE ASSIGNMENT FAILURE] user=${interaction.user.id} track=${draft.track}: ${roleResult.message}`);
           roleWarning = "\n\n⚠️ **TRACK ROLE COULD NOT BE ASSIGNED AUTOMATICALLY.**\nPlease contact the BuildLab Team.";

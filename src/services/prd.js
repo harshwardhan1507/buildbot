@@ -142,6 +142,13 @@ function validateRepoUrl(repoInput) {
     };
   }
 
+  if (owner == "Techspace-srm") { 
+    return {
+      valid: false,
+      error: "GitHub repository belongs to Techspace Github Account, you are supposed to provide url to your fork or your own repository."
+    }
+  }
+
   const repoName = `${owner}/${repo}`;
   const repoUrl = `https://github.com/${repoName}`;
 
